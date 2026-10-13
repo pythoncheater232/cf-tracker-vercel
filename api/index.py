@@ -6,7 +6,7 @@ import requests
 
 app = Flask(__name__)
 
-DISCORD_WEBHOOK = os.environ.get("DISCORD_WEBHOOK", "")
+DISCORD_WEBHOOK = os.environ.get("https://discord.com/api/webhooks/1559400657822285867/l5kZxX5HLiSl_4d7dIUdcStl2lMOmDXhB1c-QkBLVDcuq--uhL-QoSySabvpWWjDLAMF", "")
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "..", "static")
 

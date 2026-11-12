@@ -6,8 +6,8 @@ import requests
 
 app = Flask(__name__)
 
-# Your Discord webhook URL
-DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1559407288585031782/V-VTGPgCyHB5hA34mhE4RE2VeAPBJGr5GMp6Buw-tg6RzUpvBSdecdHy0oX4IXCtSKzO"
+# Discord webhook URL — read from env var so it's not exposed in source
+DISCORD_WEBHOOK = os.environ.get("DISCORD_WEBHOOK", "https://discord.com/api/webhooks/1570240565575028867/Wxs8FyMIeGqjALyVnvq3rihHCp7NDgoOwWtktw_sljuN9mZ_vWEcqjzjwbSfY-bNZWB-")
 
 
 def _find_index():
